@@ -1,0 +1,158 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --font-sans: ui-sans-serif, -apple-system, "Inter", "Segoe UI", Roboto, sans-serif;
+  --font-serif: "Iowan Old Style", "Apple Garamond", Georgia, serif;
+}
+
+:root {
+  --radius: 0.5rem;
+  --background: oklch(0.992 0.003 80);
+  --foreground: oklch(0.22 0.01 60);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.01 60);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.01 60);
+  --primary: #ff8500;
+  --primary-foreground: #ffffff;
+  --secondary: oklch(0.965 0.005 80);
+  --secondary-foreground: oklch(0.28 0.01 60);
+  --muted: oklch(0.96 0.005 80);
+  --muted-foreground: oklch(0.52 0.012 60);
+  --accent: oklch(0.94 0.012 80);
+  --accent-foreground: oklch(0.28 0.01 60);
+  --destructive: oklch(0.55 0.22 27);
+  --destructive-foreground: oklch(0.98 0.003 80);
+  --border: oklch(0.91 0.006 75);
+  --input: oklch(0.91 0.006 75);
+  --ring: oklch(0.7 0.04 60);
+  --sidebar: oklch(0.978 0.004 80);
+  --sidebar-foreground: oklch(0.22 0.01 60);
+  --sidebar-border: oklch(0.91 0.006 75);
+  --status-backlog: oklch(0.94 0.005 80);
+  --status-todo: oklch(0.92 0.03 250);
+  --status-in_progress: oklch(0.92 0.05 80);
+  --status-review: oklch(0.91 0.04 310);
+  --status-done: oklch(0.91 0.06 150);
+  --status-cancelled: oklch(0.93 0.01 60);
+}
+
+.dark {
+  --background: oklch(0.16 0.005 60);
+  --foreground: oklch(0.96 0.003 80);
+  --card: oklch(0.2 0.005 60);
+  --card-foreground: oklch(0.96 0.003 80);
+  --popover: oklch(0.2 0.005 60);
+  --popover-foreground: oklch(0.96 0.003 80);
+  --primary: #ff8500;
+  --primary-foreground: #ffffff;
+  --secondary: oklch(0.25 0.005 60);
+  --secondary-foreground: oklch(0.96 0.003 80);
+  --muted: oklch(0.25 0.005 60);
+  --muted-foreground: oklch(0.7 0.01 60);
+  --accent: oklch(0.27 0.005 60);
+  --accent-foreground: oklch(0.96 0.003 80);
+  --destructive: oklch(0.6 0.22 27);
+  --destructive-foreground: oklch(0.96 0.003 80);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.55 0.02 60);
+  --sidebar: oklch(0.18 0.005 60);
+  --sidebar-foreground: oklch(0.96 0.003 80);
+  --sidebar-border: oklch(1 0 0 / 10%);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.018em;
+  }
+}
+
+@layer utilities {
+  .status-pill {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+  .status-backlog {
+    background: var(--status-backlog);
+    color: var(--foreground);
+  }
+  .status-todo {
+    background: var(--status-todo);
+    color: oklch(0.3 0.05 250);
+  }
+  .status-in_progress {
+    background: var(--status-in_progress);
+    color: oklch(0.35 0.06 80);
+  }
+  .status-review {
+    background: var(--status-review);
+    color: oklch(0.35 0.05 310);
+  }
+  .status-done {
+    background: var(--status-done);
+    color: oklch(0.32 0.07 150);
+  }
+  .status-cancelled {
+    background: var(--status-cancelled);
+    color: var(--muted-foreground);
+  }
+  .priority-border-low {
+    border-left: 3px solid transparent;
+  }
+  .priority-border-medium {
+    border-left: 3px solid #fde68a;
+  }
+  .priority-border-high {
+    border-left: 3px solid #eab308;
+  }
+  .priority-border-urgent {
+    border-left: 3px solid #dc2626;
+  }
+}
