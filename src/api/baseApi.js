@@ -53,6 +53,9 @@ export const tagTypes = [
   "Comment",
   "TimeEntry",
   "File",
+  "Level10Event",
+  "Level10Meeting",
+  "TaskHistory",
 ];
 
 export const baseApi = createApi({

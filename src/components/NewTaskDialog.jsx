@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocations } from "@/hooks/useLocations.js";
+import { computeDueDateInputValue } from "@/utils/taskRecurrence.js";
 import { useCustomStatuses } from "@/hooks/useCustomStatuses.js";
 import {
   useSearchGhlUsersMutation,
@@ -13,6 +14,7 @@ import { STATUSES, PRIORITIES, STATUS_LABEL, PRIORITY_LABEL } from "@/theme/stat
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -55,6 +57,11 @@ export function NewTaskDialog({
   parentTaskId,
   projects = [],
   defaultProjectId = null,
+  initialValues = null,
+  dialogTitle,
+  dialogDescription,
+  submitLabel = "Create",
+  defaultLocationGhlId = null,
 }) {
   const [projectId, setProjectId] = useState(defaultProjectId);
   const { locations, locked, lockedLocationRowId } = useLocations();
@@ -73,6 +80,9 @@ export function NewTaskDialog({
   const [dueDate, setDueDate] = useState("");
   const [assignee, setAssignee] = useState(null);
   const [contact, setContact] = useState(null);
+  const [recurrence, setRecurrence] = useState("none");
+  const [recurrenceInterval, setRecurrenceInterval] = useState(1);
+  const [recurrenceUntil, setRecurrenceUntil] = useState("");
 
   const [users, setUsers] = useState([]);
   const [contacts, setContacts] = useState([]);
@@ -90,6 +100,26 @@ export function NewTaskDialog({
   useEffect(() => {
     if (open) setProjectId(defaultProjectId);
   }, [open, defaultProjectId]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (initialValues) {
+      setTitle(initialValues.title ?? "");
+      setDescription(initialValues.description ?? "");
+      setStatus(initialValues.status ?? "todo");
+      setPriority(initialValues.priority ?? "medium");
+      setDueDate(initialValues.dueDate ?? "");
+      setAssignee(initialValues.assignee ?? null);
+      setContact(initialValues.contact ?? null);
+      setRecurrence(initialValues.recurrence ?? "none");
+      setRecurrenceInterval(initialValues.recurrenceInterval ?? 1);
+      setRecurrenceUntil(initialValues.recurrenceUntil ?? "");
+    }
+    if (defaultLocationGhlId && locations.length > 0) {
+      const match = locations.find((l) => l.location_id === defaultLocationGhlId);
+      if (match) setLocationRowId(match.id);
+    }
+  }, [open, initialValues, defaultLocationGhlId, locations]);
 
   useEffect(() => {
     if (!open || !locationRowId) return;
@@ -113,6 +143,11 @@ export function NewTaskDialog({
     return () => clearTimeout(t);
   }, [open, locationRowId, contactQ, searchContacts]);
 
+  useEffect(() => {
+    if (!open || parentTaskId || recurrence === "none") return;
+    setDueDate(computeDueDateInputValue(recurrence, recurrenceInterval));
+  }, [open, parentTaskId, recurrence, recurrenceInterval]);
+
   function reset() {
     setTitle("");
     setDescription("");
@@ -121,6 +156,9 @@ export function NewTaskDialog({
     setDueDate("");
     setAssignee(null);
     setContact(null);
+    setRecurrence("none");
+    setRecurrenceInterval(1);
+    setRecurrenceUntil("");
     setUserQ("");
     setContactQ("");
     setProjectId(defaultProjectId);
@@ -185,17 +223,26 @@ export function NewTaskDialog({
         project_id: parentTaskId ? null : projectId,
         location_id: currentLoc?.location_id ?? null,
         created_by: me?.name ?? null,
+        recurrence: parentTaskId ? "none" : recurrence,
+        recurrence_interval: recurrence === "custom" ? Math.max(1, recurrenceInterval) : 1,
+        recurrence_until: !parentTaskId && recurrence !== "none" && recurrenceUntil
+          ? new Date(recurrenceUntil + "T23:59:59").toISOString()
+          : null,
       }).unwrap();
     } catch (err) {
       toast.error(apiErrorMessage(err, "Failed to create task"));
       return;
     }
 
-    toast.success(parentTaskId ? "Subtask created" : "Task created");
+    toast.success(
+      parentTaskId ? "Subtask created" : initialValues ? "Task created from issue" : "Task created",
+    );
     reset();
     onOpenChange(false);
-    onCreated();
+    onCreated?.();
   }
+
+  const heading = dialogTitle ?? (parentTaskId ? "New subtask" : "New task");
 
   return (
     <Dialog
@@ -205,9 +252,12 @@ export function NewTaskDialog({
         if (!v) reset();
       }}
     >
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{parentTaskId ? "New subtask" : "New task"}</DialogTitle>
+          <DialogTitle>{heading}</DialogTitle>
+          {dialogDescription && (
+            <DialogDescription>{dialogDescription}</DialogDescription>
+          )}
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
@@ -289,7 +339,15 @@ export function NewTaskDialog({
           <div className={`grid gap-3 ${locked ? "grid-cols-1" : "grid-cols-2"}`}>
             <div className="space-y-1.5">
               <Label>Due date</Label>
-              <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+              <Input
+                type="date"
+                value={dueDate}
+                readOnly={recurrence !== "none"}
+                onChange={(e) => setDueDate(e.target.value)}
+              />
+              {recurrence !== "none" && (
+                <p className="text-xs text-muted-foreground">Set automatically from the repeat schedule.</p>
+              )}
             </div>
             {!locked && (
               <div className="space-y-1.5">
@@ -315,6 +373,45 @@ export function NewTaskDialog({
               </div>
             )}
           </div>
+
+          {!parentTaskId && (
+            <div className="space-y-3 rounded-md border p-3 bg-muted/20">
+              <Label>Repeat</Label>
+              <div className="grid grid-cols-2 gap-3">
+                <Select value={recurrence} onValueChange={setRecurrence}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Does not repeat</SelectItem>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="biweekly">Every 2 weeks</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="custom">Custom (every N days)</SelectItem>
+                  </SelectContent>
+                </Select>
+                {recurrence === "custom" && (
+                  <Input
+                    type="number"
+                    min={1}
+                    value={recurrenceInterval}
+                    onChange={(e) => setRecurrenceInterval(parseInt(e.target.value, 10) || 1)}
+                    placeholder="Every N days"
+                  />
+                )}
+              </div>
+              {recurrence !== "none" && (
+                <div className="space-y-1.5">
+                  <Label>Repeat until (optional)</Label>
+                  <Input type="date" value={recurrenceUntil} onChange={(e) => setRecurrenceUntil(e.target.value)} />
+                </div>
+              )}
+              {recurrence !== "none" && (
+                <p className="text-xs text-muted-foreground">
+                  The next occurrence is created automatically when each due date arrives, even if the previous task is not completed.
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label>Assignee</Label>
@@ -397,7 +494,7 @@ export function NewTaskDialog({
             Cancel
           </Button>
           <Button onClick={submit} disabled={!title.trim()}>
-            Create
+            {submitLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

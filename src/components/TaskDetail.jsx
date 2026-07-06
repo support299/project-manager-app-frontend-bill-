@@ -5,7 +5,7 @@ import {
   useDeleteTaskMutation,
   useGetCommentsQuery,
   useAddCommentMutation,
-  useGetStatusChangesQuery,
+  useGetTaskHistoryQuery,
   useGetTimeEntriesQuery,
   useCreateTimeEntryMutation,
   useUpdateTimeEntryMutation,
@@ -26,6 +26,7 @@ import { useCustomStatuses } from "@/hooks/useCustomStatuses.js";
 import { useSession } from "@/hooks/useSession.js";
 import { getIdentity } from "@/utils/session.js";
 import { STATUSES, PRIORITIES, STATUS_LABEL, PRIORITY_LABEL, formatDuration } from "@/theme/status.js";
+import { formatHistoryEntry, computeDueDateInputValue, dueDateIsoFromInput } from "@/utils/taskRecurrence.js";
 import { NewTaskDialog } from "./NewTaskDialog.jsx";
 import { LinkPreviews } from "./LinkPreviews.jsx";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/Sheet.jsx";
@@ -66,16 +67,23 @@ export function TaskDetail({
   onOpenTask,
   onBack,
   projects = [],
+  meetingAccess = false,
 }) {
   const session = useSession();
   const open = !!taskId;
 
-  const { data: task } = useGetTaskQuery(taskId, { skip: !open });
-  const { data: comments = [] } = useGetCommentsQuery(taskId, { skip: !open });
-  const { data: history = [] } = useGetStatusChangesQuery(taskId, { skip: !open });
-  const { data: time = [] } = useGetTimeEntriesQuery(taskId, { skip: !open });
-  const { data: files = [] } = useGetTaskFilesQuery(taskId, { skip: !open });
-  const { data: subtasks = [] } = useGetSubtasksQuery(taskId, { skip: !open || !!task?.parent_task_id });
+  const taskQueryArg = useMemo(
+    () => (meetingAccess ? { id: taskId, meeting_todos: true } : taskId),
+    [taskId, meetingAccess],
+  );
+  const meetingOpts = meetingAccess ? { meeting_todos: true } : {};
+
+  const { data: task, isLoading, isError } = useGetTaskQuery(taskQueryArg, { skip: !open });
+  const { data: comments = [] } = useGetCommentsQuery(taskQueryArg, { skip: !open });
+  const { data: history = [] } = useGetTaskHistoryQuery(taskQueryArg, { skip: !open });
+  const { data: time = [] } = useGetTimeEntriesQuery(taskQueryArg, { skip: !open });
+  const { data: files = [] } = useGetTaskFilesQuery(taskQueryArg, { skip: !open });
+  const { data: subtasks = [] } = useGetSubtasksQuery(taskQueryArg, { skip: !open || !!task?.parent_task_id });
 
   const [updateTask] = useUpdateTaskMutation();
   const [deleteTask] = useDeleteTaskMutation();
@@ -117,6 +125,48 @@ export function TaskDetail({
   const currentLoc = locations.find((l) => l.id === locationRowId);
   const { statuses: customStatuses } = useCustomStatuses(currentLoc?.location_id ?? null);
 
+  const statusLabels = useMemo(() => {
+    const m = { ...STATUS_LABEL };
+    for (const cs of customStatuses) m[`custom:${cs.key}`] = cs.label;
+    return m;
+  }, [customStatuses]);
+
+  const projectById = useMemo(
+    () => Object.fromEntries(projects.map((p) => [p.id, p])),
+    [projects],
+  );
+
+  const historyEntries = useMemo(() => {
+    const formatted = history.map((h) => ({
+      ...formatHistoryEntry(h, {
+        statusLabel: statusLabels,
+        priorityLabel: PRIORITY_LABEL,
+        projectById,
+      }),
+      id: h.id,
+    }));
+
+    const loggedComments = new Set(
+      history
+        .filter((h) => h.action === "comment_added" || h.field === "comment")
+        .map((h) => `${h.to_value}|${(h.created_at ?? "").slice(0, 16)}`),
+    );
+
+    const legacyComments = comments
+      .filter((c) => !loggedComments.has(`${c.body}|${(c.created_at ?? "").slice(0, 16)}`))
+      .map((c) => ({
+        id: `comment-${c.id}`,
+        who: c.author_name || "Someone",
+        text: "added a comment",
+        detail: c.body,
+        when: c.created_at,
+      }));
+
+    return [...formatted, ...legacyComments].sort(
+      (a, b) => new Date(b.when) - new Date(a.when),
+    );
+  }, [history, comments, statusLabels, projectById]);
+
   const fileInput = useRef(null);
 
   useEffect(() => {
@@ -144,7 +194,7 @@ export function TaskDetail({
   async function patch(fields) {
     if (!task) return;
     try {
-      await updateTask({ id: task.id, ...fields }).unwrap();
+      await updateTask({ id: task.id, ...meetingOpts, ...fields }).unwrap();
       onChange();
     } catch (err) {
       toast.error(errMsg(err));
@@ -157,6 +207,7 @@ export function TaskDetail({
     try {
       await addCommentMut({
         taskId: task.id,
+        ...meetingOpts,
         author_name: me?.name ?? "Anonymous",
         author_email: me?.email ?? null,
         body: newComment.trim(),
@@ -175,6 +226,7 @@ export function TaskDetail({
     try {
       await createTimeEntry({
         taskId: task.id,
+        ...meetingOpts,
         user_name: me?.name ?? "Anonymous",
         started_at: new Date().toISOString(),
       }).unwrap();
@@ -191,6 +243,7 @@ export function TaskDetail({
       await updateTimeEntry({
         taskId: task.id,
         entryId: activeEntry.id,
+        ...meetingOpts,
         ended_at: ended.toISOString(),
         duration_seconds: dur,
       }).unwrap();
@@ -202,7 +255,7 @@ export function TaskDetail({
   async function deleteTime(id) {
     if (!task) return;
     try {
-      await deleteTimeEntry({ taskId: task.id, entryId: id }).unwrap();
+      await deleteTimeEntry({ taskId: task.id, entryId: id, ...meetingOpts }).unwrap();
     } catch (err) {
       toast.error(errMsg(err));
     }
@@ -219,6 +272,7 @@ export function TaskDetail({
     try {
       await uploadTaskFile({
         taskId: task.id,
+        ...meetingOpts,
         file,
         uploaded_by: me?.name ?? null,
       }).unwrap();
@@ -231,7 +285,7 @@ export function TaskDetail({
   async function deleteFile(f) {
     if (!task) return;
     try {
-      await deleteTaskFile({ taskId: task.id, fileId: f.id }).unwrap();
+      await deleteTaskFile({ taskId: task.id, fileId: f.id, ...meetingOpts }).unwrap();
     } catch (err) {
       toast.error(errMsg(err));
     }
@@ -245,13 +299,31 @@ export function TaskDetail({
     );
   }
 
-  if (!task) {
+  if (isLoading) {
     return (
       <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
         <SheetContent className="sm:max-w-2xl">
           <SheetHeader>
             <SheetTitle>Loading…</SheetTitle>
           </SheetHeader>
+        </SheetContent>
+      </Sheet>
+    );
+  }
+
+  if (isError || !task) {
+    return (
+      <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
+        <SheetContent className="sm:max-w-2xl">
+          <SheetHeader>
+            <SheetTitle>Could not load task</SheetTitle>
+          </SheetHeader>
+          <p className="text-sm text-muted-foreground mt-2">
+            This task may not be visible to your account, or it may have been deleted.
+          </p>
+          <Button variant="outline" size="sm" className="mt-4" onClick={onClose}>
+            Close
+          </Button>
         </SheetContent>
       </Sheet>
     );
@@ -314,11 +386,83 @@ export function TaskDetail({
             <div className="text-muted-foreground text-xs mb-1">Due date</div>
             <Input
               type="date"
-              key={task.id}
+              key={`${task.id}-${task.due_date}-${task.recurrence}`}
               defaultValue={task.due_date ? task.due_date.slice(0, 10) : ""}
-              onBlur={(e) => patch({ due_date: e.target.value ? new Date(e.target.value).toISOString() : null })}
+              readOnly={task.recurrence && task.recurrence !== "none"}
+              onBlur={(e) => {
+                if (task.recurrence && task.recurrence !== "none") return;
+                patch({ due_date: e.target.value ? new Date(e.target.value).toISOString() : null });
+              }}
             />
+            {task.recurrence && task.recurrence !== "none" && (
+              <p className="text-xs text-muted-foreground mt-1">Set automatically from the repeat schedule.</p>
+            )}
           </div>
+          {!task.parent_task_id && (
+            <>
+              <div>
+                <div className="text-muted-foreground text-xs mb-1">Repeat</div>
+                <Select
+                  value={task.recurrence || "none"}
+                  onValueChange={(v) => {
+                    const interval = v === "custom" ? (task.recurrence_interval || 1) : 1;
+                    const fields = {
+                      recurrence: v,
+                      recurrence_interval: interval,
+                      recurrence_until: v === "none" ? null : task.recurrence_until,
+                    };
+                    if (v !== "none") {
+                      fields.due_date = dueDateIsoFromInput(computeDueDateInputValue(v, interval));
+                    }
+                    patch(fields);
+                  }}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Does not repeat</SelectItem>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="biweekly">Every 2 weeks</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="custom">Custom (every N days)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {task.recurrence === "custom" && (
+                <div>
+                  <div className="text-muted-foreground text-xs mb-1">Every N days</div>
+                  <Input
+                    type="number"
+                    min={1}
+                    key={`${task.id}-interval`}
+                    defaultValue={task.recurrence_interval || 1}
+                    onBlur={(e) => {
+                      const n = Math.max(1, parseInt(e.target.value, 10) || 1);
+                      if (n !== (task.recurrence_interval || 1)) {
+                        patch({
+                          recurrence_interval: n,
+                          due_date: dueDateIsoFromInput(computeDueDateInputValue("custom", n)),
+                        });
+                      }
+                    }}
+                  />
+                </div>
+              )}
+              {(task.recurrence && task.recurrence !== "none") && (
+                <div>
+                  <div className="text-muted-foreground text-xs mb-1">Repeat until</div>
+                  <Input
+                    type="date"
+                    key={`${task.id}-until`}
+                    defaultValue={task.recurrence_until ? task.recurrence_until.slice(0, 10) : ""}
+                    onBlur={(e) => patch({
+                      recurrence_until: e.target.value ? new Date(e.target.value + "T23:59:59").toISOString() : null,
+                    })}
+                  />
+                </div>
+              )}
+            </>
+          )}
           {!locked && (
             <div>
               <div className="text-muted-foreground text-xs mb-1">Location</div>
@@ -618,7 +762,7 @@ export function TaskDetail({
                           value={s.status}
                           onValueChange={async (v) => {
                             try {
-                              await updateTask({ id: s.id, status: v }).unwrap();
+                              await updateTask({ id: s.id, ...meetingOpts, status: v }).unwrap();
                               onChange();
                             } catch (err) {
                               toast.error(errMsg(err));
@@ -708,16 +852,24 @@ export function TaskDetail({
             </div>
           </TabsContent>
 
-          <TabsContent value="history" className="space-y-1">
-            {history.length === 0 && <p className="text-sm text-muted-foreground">No status changes.</p>}
-            {history.map((h) => (
-              <div key={h.id} className="text-sm border-b py-2 flex justify-between">
-                <span>
-                  {h.changed_by ?? "Someone"} moved from{" "}
-                  <span className={`status-pill status-${h.from_status ?? "backlog"}`}>{h.from_status ? STATUS_LABEL[h.from_status] : "—"}</span>{" "}
-                  to <span className={`status-pill status-${h.to_status}`}>{STATUS_LABEL[h.to_status]}</span>
+          <TabsContent value="history" className="space-y-0">
+            {historyEntries.length === 0 && <p className="text-sm text-muted-foreground py-2">No activity yet.</p>}
+            {historyEntries.map((h) => (
+              <div key={h.id} className="border-b py-3 flex justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm leading-relaxed">
+                    <span className="font-medium">{h.who}</span>{" "}
+                    <span className="text-foreground/90">{h.text}</span>
+                  </p>
+                  {h.detail && (
+                    <p className="mt-1.5 text-xs text-muted-foreground whitespace-pre-wrap break-words rounded-md bg-muted/40 px-2.5 py-2 border">
+                      {h.detail}
+                    </p>
+                  )}
+                </div>
+                <span className="text-xs text-muted-foreground shrink-0 pt-0.5">
+                  {new Date(h.when).toLocaleString()}
                 </span>
-                <span className="text-xs text-muted-foreground">{new Date(h.created_at).toLocaleString()}</span>
               </div>
             ))}
           </TabsContent>
@@ -730,7 +882,7 @@ export function TaskDetail({
             onClick={async () => {
               if (!confirm("Delete this task?")) return;
               try {
-                await deleteTask(task.id).unwrap();
+                await deleteTask(meetingAccess ? { id: task.id, meeting_todos: true } : task.id).unwrap();
                 onChange();
                 onClose();
               } catch (err) {

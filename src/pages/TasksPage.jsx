@@ -14,8 +14,13 @@ import {
   CalendarDays,
   BarChart3,
   Settings,
+  Video,
+  ChevronDown,
+  ChevronRight,
+  ListTree,
+  Repeat,
 } from "lucide-react";
-import { useGetTasksQuery } from "@/api/tasksApi.js";
+import { useGetTasksQuery, useGetSubtasksListQuery } from "@/api/tasksApi.js";
 import { useGetProjectsQuery, useDeleteProjectMutation } from "@/api/projectsApi.js";
 import { useGetGhlUsersQuery } from "@/api/locationsApi.js";
 import { Button } from "@/components/ui/Button.jsx";
@@ -58,6 +63,10 @@ export function TasksPage() {
     locationParams,
     { skip },
   );
+  const { data: allSubtasks = [], isLoading: subtasksLoading } = useGetSubtasksListQuery(
+    locationParams,
+    { skip },
+  );
   const { data: projects = [], refetch: refetchProjects } = useGetProjectsQuery(
     locationParams,
     { skip },
@@ -91,6 +100,7 @@ export function TasksPage() {
   const [fCreatedTo, setFCreatedTo] = useState("");
   const [fDueFrom, setFDueFrom] = useState("");
   const [fDueTo, setFDueTo] = useState("");
+  const [expandedParents, setExpandedParents] = useState(() => new Set());
 
   const loading = !session.loaded || (!skip && tasksLoading);
 
@@ -115,32 +125,34 @@ export function TasksPage() {
     setFDueTo("");
   }
 
-  const grouped = useMemo(() => {
+  const matchesFilters = useCallback((t) => {
     const lower = q.toLowerCase();
-    const filtered = tasks.filter((t) => {
-      if (q && !(
-        (t.title || "").toLowerCase().includes(lower) ||
-        (t.description || "").toLowerCase().includes(lower) ||
-        (t.ghl_assignee_name || "").toLowerCase().includes(lower) ||
-        (t.ghl_contact_name || "").toLowerCase().includes(lower)
-      )) return false;
-      const effectiveStatus = t.custom_status_key ? `custom:${t.custom_status_key}` : t.status;
-      if (fStatus !== ALL && effectiveStatus !== fStatus) return false;
-      if (fPriority !== ALL && t.priority !== fPriority) return false;
-      if (fProject !== ALL) {
-        if (fProject === NONE && t.project_id) return false;
-        if (fProject !== NONE && t.project_id !== fProject) return false;
-      }
-      if (fAssignees.length > 0) {
-        const ids = t.ghl_assignee_ids ?? [];
-        if (!fAssignees.some((a) => ids.includes(a))) return false;
-      }
-      if (fCreatedFrom && new Date(t.created_at) < new Date(fCreatedFrom)) return false;
-      if (fCreatedTo && new Date(t.created_at) > new Date(fCreatedTo + "T23:59:59")) return false;
-      if (fDueFrom && (!t.due_date || new Date(t.due_date) < new Date(fDueFrom))) return false;
-      if (fDueTo && (!t.due_date || new Date(t.due_date) > new Date(fDueTo + "T23:59:59"))) return false;
-      return true;
-    });
+    if (q && !(
+      (t.title || "").toLowerCase().includes(lower) ||
+      (t.description || "").toLowerCase().includes(lower) ||
+      (t.ghl_assignee_name || "").toLowerCase().includes(lower) ||
+      (t.ghl_contact_name || "").toLowerCase().includes(lower)
+    )) return false;
+    const effectiveStatus = t.custom_status_key ? `custom:${t.custom_status_key}` : t.status;
+    if (fStatus !== ALL && effectiveStatus !== fStatus) return false;
+    if (fPriority !== ALL && t.priority !== fPriority) return false;
+    if (fProject !== ALL) {
+      if (fProject === NONE && t.project_id) return false;
+      if (fProject !== NONE && t.project_id !== fProject) return false;
+    }
+    if (fAssignees.length > 0) {
+      const ids = t.ghl_assignee_ids ?? [];
+      if (!fAssignees.some((a) => ids.includes(a))) return false;
+    }
+    if (fCreatedFrom && new Date(t.created_at) < new Date(fCreatedFrom)) return false;
+    if (fCreatedTo && new Date(t.created_at) > new Date(fCreatedTo + "T23:59:59")) return false;
+    if (fDueFrom && (!t.due_date || new Date(t.due_date) < new Date(fDueFrom))) return false;
+    if (fDueTo && (!t.due_date || new Date(t.due_date) > new Date(fDueTo + "T23:59:59"))) return false;
+    return true;
+  }, [q, fStatus, fPriority, fProject, fAssignees, fCreatedFrom, fCreatedTo, fDueFrom, fDueTo]);
+
+  const grouped = useMemo(() => {
+    const filtered = tasks.filter(matchesFilters);
     const map = {};
     for (const s of STATUSES) map[s] = [];
     for (const cs of customStatuses) map[`custom:${cs.key}`] = [];
@@ -149,7 +161,7 @@ export function TasksPage() {
       (map[key] ||= []).push(t);
     }
     return map;
-  }, [tasks, q, fStatus, fPriority, fProject, fAssignees, fCreatedFrom, fCreatedTo, fDueFrom, fDueTo, customStatuses]);
+  }, [tasks, matchesFilters, customStatuses]);
 
   const allStatusKeys = useMemo(
     () => [...STATUSES, ...customStatuses.map((c) => `custom:${c.key}`)],
@@ -161,6 +173,27 @@ export function TasksPage() {
   );
 
   const projectById = useMemo(() => Object.fromEntries(projects.map((p) => [p.id, p])), [projects]);
+
+  const subtasksByParent = useMemo(() => {
+    const map = new Map();
+    for (const s of allSubtasks) {
+      const pid = s.parent_task_id;
+      if (!pid) continue;
+      const arr = map.get(pid) || [];
+      arr.push(s);
+      map.set(pid, arr);
+    }
+    return map;
+  }, [allSubtasks]);
+
+  function toggleExpanded(taskId) {
+    setExpandedParents((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  }
 
   async function deleteProject(id) {
     if (!confirm("Delete this project? Tasks will be unassigned from it.")) return;
@@ -265,6 +298,11 @@ export function TasksPage() {
               <Link to="/dashboard">
                 <Button variant="outline" size="sm" className="h-9">
                   <BarChart3 className="h-4 w-4 mr-1.5" />Dashboard
+                </Button>
+              </Link>
+              <Link to="/level10">
+                <Button variant="outline" size="sm" className="h-9">
+                  <Video className="h-4 w-4 mr-1.5" />Perfect 10 Meeting
                 </Button>
               </Link>
               <div className="inline-flex rounded-md border bg-card p-0.5">
@@ -424,42 +462,63 @@ export function TasksPage() {
                       <span className="text-xs text-muted-foreground">{list.length}</span>
                     </div>
                     <div className="border rounded-lg bg-card divide-y">
-                      {list.map((t) => (
-                        <button
-                          key={t.id}
-                          onClick={() => setStack([t.id])}
-                          className={`w-full text-left px-4 py-3 hover:bg-accent/40 transition-colors flex items-center justify-between gap-3 priority-border-${t.priority}`}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="font-medium truncate">{t.title}</div>
-                            {t.description ? (
-                              <div className="text-sm text-muted-foreground truncate">{t.description}</div>
-                            ) : null}
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {t.project_id && projectById[t.project_id] && (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[11px]">
-                                  <Folder className="h-3 w-3" />{projectById[t.project_id].title}
-                                </span>
-                              )}
-                              {t.labels?.map((l) => (
-                                <span key={l} className="rounded-full bg-accent px-2 py-0.5 text-[11px]">{l}</span>
-                              ))}
+                      {list.map((t) => {
+                        const children = (subtasksByParent.get(t.id) || []).filter(matchesFilters);
+                        const subtaskCount = t.subtask_count ?? children.length;
+                        const hasChildren = subtaskCount > 0;
+                        const isExpanded = expandedParents.has(t.id);
+                        return (
+                          <div key={t.id} className="group/task">
+                            <div className={`flex items-stretch priority-border-${t.priority}`}>
+                              <div className="flex w-9 shrink-0 items-center justify-center border-r bg-muted/30">
+                                {hasChildren ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleExpanded(t.id)}
+                                    className="flex h-full w-full items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground"
+                                    aria-label={isExpanded ? "Collapse subtasks" : "Expand subtasks"}
+                                    aria-expanded={isExpanded}
+                                  >
+                                    {isExpanded ? (
+                                      <ChevronDown className="h-4 w-4" />
+                                    ) : (
+                                      <ChevronRight className="h-4 w-4" />
+                                    )}
+                                  </button>
+                                ) : (
+                                  <span className="h-4 w-4" />
+                                )}
+                              </div>
+                              <TaskListRow
+                                task={t}
+                                projectById={projectById}
+                                onOpen={() => setStack([t.id])}
+                                badge={hasChildren ? (
+                                  <span className="inline-flex items-center gap-0.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                    <ListTree className="h-3 w-3" />
+                                    {subtaskCount}
+                                  </span>
+                                ) : null}
+                              />
                             </div>
+                            {hasChildren && isExpanded && (
+                              subtasksLoading && children.length === 0 ? (
+                                <p className="py-2 pl-12 text-xs text-muted-foreground">Loading subtasks…</p>
+                              ) : (
+                                children.map((sub) => (
+                                  <TaskListRow
+                                    key={sub.id}
+                                    task={sub}
+                                    projectById={projectById}
+                                    onOpen={() => setStack([t.id, sub.id])}
+                                    isSubtask
+                                  />
+                                ))
+                              )
+                            )}
                           </div>
-                          <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
-                            <span className="hidden sm:inline">{PRIORITY_LABEL[t.priority]}</span>
-                            {(t.ghl_assignee_names?.length ?? 0) > 0 && (
-                              <span className="inline-flex items-center gap-1"><UserIcon className="h-3 w-3" />{t.ghl_assignee_names.join(", ")}</span>
-                            )}
-                            {t.ghl_contact_name && (
-                              <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3" />{t.ghl_contact_name}</span>
-                            )}
-                            {t.due_date && (
-                              <span className="inline-flex items-center gap-1"><Calendar className="h-3 w-3" />{new Date(t.due_date).toLocaleDateString()}</span>
-                            )}
-                          </div>
-                        </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   </section>
                 );
@@ -491,5 +550,53 @@ export function TasksPage() {
         projects={projects}
       />
     </div>
+  );
+}
+
+function TaskListRow({ task, projectById, onOpen, isSubtask = false, badge = null }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`flex-1 text-left px-4 py-3 hover:bg-accent/40 transition-colors flex items-center justify-between gap-3 ${isSubtask ? "pl-6 bg-muted/25 border-l-2 border-l-primary/30 ml-9" : ""}`}
+    >
+      <div className="flex items-start gap-2 min-w-0 flex-1">
+        <div className="min-w-0 flex-1">
+          <div className="font-medium truncate flex items-center gap-1.5">
+            {isSubtask && <ListTree className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+            {task.title}
+            {badge}
+            {task.recurrence && task.recurrence !== "none" && (
+              <Repeat className="h-3 w-3 shrink-0 text-muted-foreground" />
+            )}
+          </div>
+          {task.description ? (
+            <div className="text-sm text-muted-foreground truncate">{task.description}</div>
+          ) : null}
+          <div className="flex flex-wrap gap-1 mt-1">
+            {task.project_id && projectById[task.project_id] && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[11px]">
+                <Folder className="h-3 w-3" />{projectById[task.project_id].title}
+              </span>
+            )}
+            {task.labels?.map((l) => (
+              <span key={l} className="rounded-full bg-accent px-2 py-0.5 text-[11px]">{l}</span>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
+        <span className="hidden sm:inline">{PRIORITY_LABEL[task.priority]}</span>
+        {(task.ghl_assignee_names?.length ?? 0) > 0 && (
+          <span className="inline-flex items-center gap-1"><UserIcon className="h-3 w-3" />{task.ghl_assignee_names.join(", ")}</span>
+        )}
+        {task.ghl_contact_name && (
+          <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3" />{task.ghl_contact_name}</span>
+        )}
+        {task.due_date && (
+          <span className="inline-flex items-center gap-1"><Calendar className="h-3 w-3" />{new Date(task.due_date).toLocaleDateString()}</span>
+        )}
+      </div>
+    </button>
   );
 }
