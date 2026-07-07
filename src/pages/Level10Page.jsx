@@ -463,6 +463,10 @@ export function Level10Page() {
 
 function EventDialog({ open, onOpenChange, editing, editOccurrenceDate, locId, users, onSaved }) {
   const singleOccurrenceMode = !!(editing && editOccurrenceDate && editing.recurrence !== "none");
+  const locationUserIds = useMemo(
+    () => users.map((u) => u.ghl_id).filter(Boolean),
+    [users],
+  );
   const [title, setTitle] = useState("");
   const [locType, setLocType] = useState("inperson");
   const [locValue, setLocValue] = useState("");
@@ -473,7 +477,6 @@ function EventDialog({ open, onOpenChange, editing, editOccurrenceDate, locId, u
   const [interval, setIntervalN] = useState(1);
   const [recurrenceUntil, setRecurrenceUntil] = useState("");
   const [timezone, setTimezone] = useState(BROWSER_TZ);
-  const [participants, setParticipants] = useState([]);
   const [hosts, setHosts] = useState([]);
   const [saving, setSaving] = useState(false);
 
@@ -495,7 +498,6 @@ function EventDialog({ open, onOpenChange, editing, editOccurrenceDate, locId, u
         setIntervalN(editing.recurrence_interval || 1);
         setRecurrenceUntil(editing.recurrence_until ? editing.recurrence_until.slice(0, 10) : "");
         setTimezone(editing.timezone || BROWSER_TZ);
-        setParticipants(editing.participant_ghl_user_ids || []);
         setHosts(
           (editing.host_ghl_user_ids?.length > 0)
             ? editing.host_ghl_user_ids
@@ -512,7 +514,6 @@ function EventDialog({ open, onOpenChange, editing, editOccurrenceDate, locId, u
         setIntervalN(1);
         setRecurrenceUntil("");
         setTimezone(BROWSER_TZ);
-        setParticipants([]);
         setHosts([]);
       }
     }
@@ -523,9 +524,9 @@ function EventDialog({ open, onOpenChange, editing, editOccurrenceDate, locId, u
     if (!startsAt) return toast.error("Start date/time is required");
     if (!locId) return toast.error("Select a location before saving.");
     if (hosts.length === 0) return toast.error("At least one meeting host is required");
-    if (participants.length === 0) return toast.error("At least one participant is required");
+    if (locationUserIds.length === 0) return toast.error("No users found for this location. Sync users in Admin first.");
     setSaving(true);
-    const finalParticipants = Array.from(new Set([...hosts, ...participants]));
+    const finalParticipants = Array.from(new Set([...locationUserIds, ...hosts]));
     const payload = {
       title: title.trim(),
       location_type: locType,
@@ -717,51 +718,21 @@ function EventDialog({ open, onOpenChange, editing, editOccurrenceDate, locId, u
             )}
           </div>
           <div>
-            <Label className="flex items-center gap-1"><Users className="h-3.5 w-3.5" />Participants <span className="text-destructive">*</span></Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" type="button" className="w-full justify-start font-normal">
-                  {participants.length === 0
-                    ? <span className="text-muted-foreground">Select users…</span>
-                    : <span className="truncate">{participants.length} selected</span>}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)]" align="start">
-                <div className="max-h-64 overflow-y-auto p-1">
-                  {users.length === 0 ? (
-                    <div className="text-sm text-muted-foreground px-3 py-2">No users found for this location.</div>
-                  ) : users.map((u) => {
-                    const checked = participants.includes(u.ghl_id);
-                    return (
-                      <label key={u.ghl_id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent cursor-pointer text-sm">
-                        <Checkbox
-                          checked={checked}
-                          onCheckedChange={(v) => {
-                            setParticipants((prev) => (v ? [...prev, u.ghl_id] : prev.filter((id) => id !== u.ghl_id)));
-                          }}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate">{u.name || u.email || u.ghl_id}</div>
-                          {u.name && u.email && <div className="text-xs text-muted-foreground truncate">{u.email}</div>}
-                        </div>
-                        {checked && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
-                      </label>
-                    );
-                  })}
-                </div>
-              </PopoverContent>
-            </Popover>
-            {participants.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-2">
-                {participants.map((id) => {
-                  const u = users.find((x) => x.ghl_id === id);
-                  return (
-                    <span key={id} className="text-xs px-2 py-0.5 rounded-full bg-muted flex items-center gap-1">
-                      {u?.name || u?.email || id}
-                      <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => setParticipants((prev) => prev.filter((x) => x !== id))}>×</button>
-                    </span>
-                  );
-                })}
+            <Label className="flex items-center gap-1"><Users className="h-3.5 w-3.5" />Participants</Label>
+            <p className="text-xs text-muted-foreground mt-1 mb-2">
+              All users in this location are included automatically.
+            </p>
+            {users.length === 0 ? (
+              <div className="text-sm text-muted-foreground rounded-md border px-3 py-2">
+                No users found for this location.
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1 rounded-md border bg-muted/20 px-3 py-2 max-h-32 overflow-y-auto">
+                {users.map((u) => (
+                  <span key={u.ghl_id} className="text-xs px-2 py-0.5 rounded-full bg-muted">
+                    {u.name || u.email || u.ghl_id}
+                  </span>
+                ))}
               </div>
             )}
           </div>
