@@ -35,6 +35,8 @@ import {
   useUpdateLevel10RockMutation,
   useDeleteLevel10RockMutation,
   useUpsertLevel10RockStatusMutation,
+  useCreateLevel10RockNoteMutation,
+  useDeleteLevel10RockNoteMutation,
   useCreateLevel10HeadlineMutation,
   useDeleteLevel10HeadlineMutation,
   useCreateLevel10IssueMutation,
@@ -158,6 +160,7 @@ export function Level10MeetingPage() {
   const mValues = meetingState?.measurable_values ?? [];
   const rocks = meetingState?.rocks ?? [];
   const rockStatuses = meetingState?.rock_statuses ?? [];
+  const rockNotes = meetingState?.rock_notes ?? [];
   const headlines = meetingState?.headlines ?? [];
   const ratings = meetingState?.ratings ?? [];
   const issues = meetingState?.issues ?? [];
@@ -436,8 +439,11 @@ export function Level10MeetingPage() {
               occurrenceKey={occurrenceKey}
               rocks={rocks}
               statuses={rockStatuses}
+              rockNotes={rockNotes}
               isHost={isHost}
               users={users}
+              session={session}
+              identityKey={identityKey}
             />
           ) : agendaTab === "headlines" ? (
             <HeadlinesPanel eventId={eventId} occurrenceKey={occurrenceKey} headlines={headlines} />
@@ -807,13 +813,188 @@ function ScorecardPanel({ eventId, occurrenceKey, measurables, values, isHost, u
   );
 }
 
-function RockReviewPanel({ eventId, occurrenceKey, rocks, statuses, isHost, users }) {
+function rockDueInputValue(dueDate) {
+  if (!dueDate) return "";
+  return dueDate.slice(0, 10);
+}
+
+function formatRockDueDate(dueDate) {
+  if (!dueDate) return null;
+  const d = new Date(`${dueDate.slice(0, 10)}T12:00:00`);
+  return Number.isNaN(d.getTime()) ? dueDate : d.toLocaleDateString();
+}
+
+function authorInitials(name) {
+  const parts = (name || "?").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
+
+function formatNoteTimestamp(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
+  });
+}
+
+function RockNotesSection({
+  rockId,
+  notes,
+  eventId,
+  occurrenceKey,
+  session,
+  identityKey,
+  isHost,
+}) {
+  const [composing, setComposing] = useState(false);
+  const [body, setBody] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [createNote] = useCreateLevel10RockNoteMutation();
+  const [deleteNote] = useDeleteLevel10RockNoteMutation();
+
+  const authorName = session.name || getIdentity()?.name || "";
+  const authorIdentity = identityKey || getIdentity()?.email || getIdentity()?.name || authorName;
+
+  function canDeleteNote(note) {
+    if (identityKey && note.author_identity && note.author_identity === identityKey) return true;
+    if (session.name && note.author_name === session.name) return true;
+    if (getIdentity()?.name && note.author_name === getIdentity().name) return true;
+    return isHost;
+  }
+
+  async function submitNote() {
+    const text = body.trim();
+    if (!text) return toast.error("Please enter a note");
+    if (!authorName.trim()) return toast.error("Please sign in or set your name to add a note");
+    setSaving(true);
+    try {
+      await createNote({
+        eventId,
+        rockId,
+        occurrence_key: occurrenceKey,
+        author_name: authorName.trim(),
+        author_identity: authorIdentity,
+        body: text,
+      }).unwrap();
+      setBody("");
+      setComposing(false);
+    } catch (err) {
+      toast.error(apiError(err, "Failed to add note"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeNote(note) {
+    if (!confirm("Delete this note?")) return;
+    try {
+      await deleteNote({
+        eventId,
+        rockId,
+        noteId: note.id,
+        occurrence_key: occurrenceKey,
+      }).unwrap();
+    } catch (err) {
+      toast.error(apiError(err, "Failed to delete note"));
+    }
+  }
+
+  return (
+    <div className="border-t bg-muted/15 px-4 py-3">
+      {notes.length > 0 ? (
+        <div className="space-y-3 mb-3">
+          {notes.map((note) => (
+            <div key={note.id} className="flex gap-3 group">
+              <div
+                className="h-8 w-8 shrink-0 rounded-full bg-primary/10 text-primary text-xs font-semibold flex items-center justify-center"
+                aria-hidden
+              >
+                {authorInitials(note.author_name)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium text-foreground">{note.author_name}</span>
+                  <span className="text-xs text-muted-foreground">{formatNoteTimestamp(note.created_at)}</span>
+                  {canDeleteNote(note) ? (
+                    <button
+                      type="button"
+                      onClick={() => removeNote(note)}
+                      className="opacity-0 group-hover:opacity-100 text-xs text-muted-foreground hover:text-destructive transition"
+                    >
+                      Delete
+                    </button>
+                  ) : null}
+                </div>
+                <p className="mt-0.5 text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed">{note.body}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {composing ? (
+        <div className="rounded-md border bg-card p-3 space-y-2">
+          <div className="text-xs text-muted-foreground">
+            Adding note as <span className="font-medium text-foreground">{authorName || "—"}</span>
+          </div>
+          <Textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder="Add context, blockers, or progress updates…"
+            rows={3}
+            autoFocus
+          />
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => { setComposing(false); setBody(""); }}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button size="sm" onClick={submitNote} disabled={saving}>
+              Add note
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setComposing(true)}
+          className="text-sm text-muted-foreground hover:text-foreground transition inline-flex items-center gap-1.5"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add a note
+        </button>
+      )}
+    </div>
+  );
+}
+
+function RockReviewPanel({ eventId, occurrenceKey, rocks, statuses, rockNotes, isHost, users, session, identityKey }) {
   const [newDesc, setNewDesc] = useState("");
   const [newOwner, setNewOwner] = useState("");
+  const [newDueDate, setNewDueDate] = useState("");
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editDesc, setEditDesc] = useState("");
   const [editOwner, setEditOwner] = useState("");
+  const [editDueDate, setEditDueDate] = useState("");
 
   const [createRock] = useCreateLevel10RockMutation();
   const [updateRock] = useUpdateLevel10RockMutation();
@@ -826,6 +1007,16 @@ function RockReviewPanel({ eventId, occurrenceKey, rocks, statuses, isHost, user
     return m;
   }, [statuses]);
 
+  const notesByRock = useMemo(() => {
+    const m = new Map();
+    for (const n of rockNotes) {
+      const list = m.get(n.rock_id) ?? [];
+      list.push(n);
+      m.set(n.rock_id, list);
+    }
+    return m;
+  }, [rockNotes]);
+
   async function addRock() {
     const description = newDesc.trim();
     if (!description) return toast.error("Rock description is required");
@@ -836,10 +1027,12 @@ function RockReviewPanel({ eventId, occurrenceKey, rocks, statuses, isHost, user
         occurrence_key: occurrenceKey,
         description,
         owner: newOwner.trim() || null,
+        due_date: newDueDate || null,
         sort_order: rocks.length,
       }).unwrap();
       setNewDesc("");
       setNewOwner("");
+      setNewDueDate("");
       toast.success("Rock added");
     } catch (err) {
       toast.error(apiError(err, "Failed to add rock"));
@@ -862,6 +1055,7 @@ function RockReviewPanel({ eventId, occurrenceKey, rocks, statuses, isHost, user
     setEditingId(r.id);
     setEditDesc(r.description);
     setEditOwner(r.owner || "");
+    setEditDueDate(rockDueInputValue(r.due_date));
   }
 
   async function saveEdit(r) {
@@ -873,6 +1067,7 @@ function RockReviewPanel({ eventId, occurrenceKey, rocks, statuses, isHost, user
         occurrence_key: occurrenceKey,
         description: editDesc.trim() || r.description,
         owner: editOwner.trim() || null,
+        due_date: editDueDate || null,
       }).unwrap();
       setEditingId(null);
       toast.success("Rock updated");
@@ -907,50 +1102,81 @@ function RockReviewPanel({ eventId, occurrenceKey, rocks, statuses, isHost, user
             rocks.map((r) => {
               const st = statusByRock.get(r.id)?.status ?? "not_set";
               const isEditing = editingId === r.id;
+              const notes = notesByRock.get(r.id) ?? [];
               return (
-                <div key={r.id} className={`rounded-md border bg-card px-4 py-3 flex items-center gap-3 ${st === "on_track" ? "bg-emerald-500/5 border-emerald-500/30" : ""}`}>
-                  <button type="button" onClick={() => cycleStatus(r)} className="shrink-0" aria-label="Toggle rock status">
-                    {st === "on_track" ? <CheckCircle2 className="h-6 w-6 text-emerald-600" /> : st === "off_track" ? <CheckCircle2 className="h-6 w-6 text-destructive" /> : <Circle className="h-6 w-6 text-muted-foreground" />}
-                  </button>
-                  <div className="flex-1 min-w-0">
-                    {isEditing ? (
-                      <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-2">
-                        <Input value={editDesc} onChange={(e) => setEditDesc(e.target.value)} />
-                        <Input value={editOwner} onChange={(e) => setEditOwner(e.target.value)} placeholder="Owner" />
+                <div key={r.id} className={`rounded-md border bg-card overflow-hidden ${st === "on_track" ? "bg-emerald-500/5 border-emerald-500/30" : ""}`}>
+                  <div className="px-4 py-3 flex items-start gap-3">
+                    <button type="button" onClick={() => cycleStatus(r)} className="shrink-0 mt-0.5" aria-label="Toggle rock status">
+                      {st === "on_track" ? <CheckCircle2 className="h-6 w-6 text-emerald-600" /> : st === "off_track" ? <CheckCircle2 className="h-6 w-6 text-destructive" /> : <Circle className="h-6 w-6 text-muted-foreground" />}
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      {isEditing ? (
+                        <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr] gap-2">
+                          <Input value={editDesc} onChange={(e) => setEditDesc(e.target.value)} placeholder="Rock description" />
+                          <Input value={editOwner} onChange={(e) => setEditOwner(e.target.value)} placeholder="Owner" />
+                          <Input type="date" value={editDueDate} onChange={(e) => setEditDueDate(e.target.value)} />
+                        </div>
+                      ) : (
+                        <>
+                          <div className="font-medium">{r.description}</div>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+                            <span>{r.owner || "No owner"}</span>
+                            {r.due_date ? (
+                              <span className="inline-flex items-center gap-1">
+                                <Calendar className="h-3.5 w-3.5" />
+                                Due {formatRockDueDate(r.due_date)}
+                              </span>
+                            ) : null}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    {!isEditing && (
+                      <div className="shrink-0 flex flex-col items-end gap-2">
+                        <div>
+                          {st === "on_track" && <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">On Track</span>}
+                          {st === "off_track" && <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-destructive/15 text-destructive">Off Track</span>}
+                          {st === "not_set" && <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-muted text-muted-foreground">Not set</span>}
+                        </div>
+                        {isHost && (
+                          <div className="flex items-center gap-1">
+                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => startEdit(r)}><Pencil className="h-3.5 w-3.5" /></Button>
+                            <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => deleteRock(r)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                          </div>
+                        )}
                       </div>
-                    ) : (
-                      <div className="font-medium truncate">{r.description}</div>
                     )}
-                  </div>
-                  {!isEditing && <div className="text-sm text-muted-foreground shrink-0">{r.owner || "—"}</div>}
-                  <div className="shrink-0">
-                    {st === "on_track" && <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">On Track</span>}
-                    {st === "off_track" && <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-destructive/15 text-destructive">Off Track</span>}
-                    {st === "not_set" && <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-muted text-muted-foreground">Not set</span>}
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {isHost && (isEditing ? (
-                      <>
+                    {isEditing && isHost && (
+                      <div className="flex items-center gap-1 shrink-0">
                         <Button size="sm" onClick={() => saveEdit(r)}>Save</Button>
                         <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Cancel</Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => startEdit(r)}><Pencil className="h-3.5 w-3.5" /></Button>
-                        <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => deleteRock(r)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                      </>
-                    ))}
+                      </div>
+                    )}
                   </div>
+                  {!isEditing ? (
+                    <RockNotesSection
+                      rockId={r.id}
+                      notes={notes}
+                      eventId={eventId}
+                      occurrenceKey={occurrenceKey}
+                      session={session}
+                      identityKey={identityKey}
+                      isHost={isHost}
+                    />
+                  ) : null}
                 </div>
               );
             })
           )}
         </div>
-        <div className="mt-3 grid grid-cols-1 md:grid-cols-[2fr_1fr_auto] gap-2">
-          <Input value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Rock description" />
-          <Input value={newOwner} onChange={(e) => setNewOwner(e.target.value)} placeholder="Owner" list="rocks-owners" />
+        <div className="mt-3">
+          <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_auto] gap-2">
+            <Input value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Rock description" />
+            <Input value={newOwner} onChange={(e) => setNewOwner(e.target.value)} placeholder="Owner" list="rocks-owners" />
+            <Input type="date" value={newDueDate} onChange={(e) => setNewDueDate(e.target.value)} />
+            <Button onClick={addRock} disabled={adding}><Plus className="h-4 w-4 mr-1.5" />Add</Button>
+          </div>
           <datalist id="rocks-owners">{users.map((u) => <option key={u.ghl_id} value={u.name || u.email || u.ghl_id} />)}</datalist>
-          <Button onClick={addRock} disabled={adding}><Plus className="h-4 w-4 mr-1.5" />Add</Button>
         </div>
         {!isHost && <p className="mt-3 text-xs text-muted-foreground">Anyone can add rocks and update status. Only meeting hosts can edit or delete rocks.</p>}
       </div>
@@ -1633,6 +1859,8 @@ function ConcludePanel({ eventId, occurrenceKey, ratings }) {
   const [identityName, setIdentityName] = useState("");
   const [identityKey, setIdentityKey] = useState("");
   const [nameDraft, setNameDraft] = useState("");
+  const [pendingRating, setPendingRating] = useState(null);
+  const [reasonDraft, setReasonDraft] = useState("");
   const [upsertRating] = useUpsertLevel10RatingMutation();
 
   useEffect(() => {
@@ -1661,9 +1889,14 @@ function ConcludePanel({ eventId, occurrenceKey, ratings }) {
     return `${avg}/10 — Needs work`;
   })();
 
-  async function submitRating(value) {
+  async function submitRating(value, reason) {
     if (!identityName.trim()) {
       toast.error("Please enter your name first");
+      return;
+    }
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      toast.error("Please tell us why you gave this rating");
       return;
     }
     const name = identityName.trim();
@@ -1673,10 +1906,29 @@ function ConcludePanel({ eventId, occurrenceKey, ratings }) {
       setIdentity({ name, email: existing?.email });
     }
     try {
-      await upsertRating({ eventId, occurrence_key: occurrenceKey, rater_identity: key, rater_name: name, rating: value }).unwrap();
+      await upsertRating({
+        eventId,
+        occurrence_key: occurrenceKey,
+        rater_identity: key,
+        rater_name: name,
+        rating: value,
+        reason: trimmedReason,
+      }).unwrap();
+      setPendingRating(null);
+      setReasonDraft("");
     } catch (err) {
       toast.error(apiError(err, "Failed to submit rating"));
     }
+  }
+
+  function openRatingDialog(value) {
+    setPendingRating(value);
+    setReasonDraft(myRating?.rating === value ? (myRating.reason || "") : "");
+  }
+
+  function closeRatingDialog() {
+    setPendingRating(null);
+    setReasonDraft("");
   }
 
   function saveName() {
@@ -1734,7 +1986,7 @@ function ConcludePanel({ eventId, occurrenceKey, ratings }) {
               {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => {
                 const selected = myRating?.rating === n;
                 return (
-                  <button key={n} type="button" onClick={() => submitRating(n)} className={`h-9 w-9 rounded-full border text-sm font-medium transition ${selected ? "bg-primary text-primary-foreground border-primary" : "bg-card hover:bg-accent border-border"}`}>
+                  <button key={n} type="button" onClick={() => openRatingDialog(n)} className={`h-9 w-9 rounded-full border text-sm font-medium transition ${selected ? "bg-primary text-primary-foreground border-primary" : "bg-card hover:bg-accent border-border"}`}>
                     {n}
                   </button>
                 );
@@ -1761,10 +2013,34 @@ function ConcludePanel({ eventId, occurrenceKey, ratings }) {
                 })}
               </div>
               <div className="text-center text-3xl font-bold text-primary mt-3">{r.rating}</div>
+              {r.reason ? (
+                <p className="mt-3 text-sm text-muted-foreground text-center leading-relaxed">"{r.reason}"</p>
+              ) : null}
             </div>
           ))
         )}
       </div>
+      <Dialog open={pendingRating !== null} onOpenChange={(open) => { if (!open) closeRatingDialog(); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Why did you rate this meeting {pendingRating}/10?</DialogTitle>
+            <DialogDescription>
+              Share what went well or what could be improved. This helps the team run better meetings.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={reasonDraft}
+            onChange={(e) => setReasonDraft(e.target.value)}
+            placeholder="Tell us why you gave this rating…"
+            rows={4}
+            autoFocus
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={closeRatingDialog}>Cancel</Button>
+            <Button onClick={() => submitRating(pendingRating, reasonDraft)}>Submit rating</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

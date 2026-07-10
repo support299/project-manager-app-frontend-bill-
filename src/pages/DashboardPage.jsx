@@ -16,6 +16,7 @@ export function DashboardPage() {
   const stats = data?.stats ?? {
     total: 0,
     done: 0,
+    archived: 0,
     cancelled: 0,
     in_progress: 0,
     overdue: 0,
@@ -56,7 +57,7 @@ export function DashboardPage() {
               <KPI label="Total tasks" value={stats.total} />
               <KPI
                 label="Completed"
-                value={stats.done}
+                value={stats.done + (stats.archived ?? 0)}
                 icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />}
               />
               <KPI

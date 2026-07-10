@@ -30,6 +30,7 @@ export const STATUS_COLORS = {
   in_progress: "oklch(0.92 0.05 80)",
   review: "oklch(0.91 0.04 310)",
   done: "oklch(0.91 0.06 150)",
+  archive: "oklch(0.90 0.02 280)",
   cancelled: "oklch(0.93 0.01 60)",
 };
 

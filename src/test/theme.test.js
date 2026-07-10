@@ -5,6 +5,7 @@ describe("theme", () => {
   it("exports status labels matching original app", () => {
     expect(STATUS_LABEL.todo).toBe("To do");
     expect(STATUS_LABEL.in_progress).toBe("In progress");
+    expect(STATUS_LABEL.archive).toBe("Archive");
   });
 
   it("exports primary brand color", () => {

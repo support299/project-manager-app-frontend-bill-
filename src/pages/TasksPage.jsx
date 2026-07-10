@@ -10,7 +10,8 @@ import {
   Pencil,
   Trash2,
   X,
-  LayoutGrid,
+  List,
+  Columns3,
   CalendarDays,
   BarChart3,
   Settings,
@@ -20,7 +21,7 @@ import {
   ListTree,
   Repeat,
 } from "lucide-react";
-import { useGetTasksQuery, useGetSubtasksListQuery } from "@/api/tasksApi.js";
+import { useGetTasksQuery, useGetSubtasksListQuery, useUpdateTaskMutation } from "@/api/tasksApi.js";
 import { useGetProjectsQuery, useDeleteProjectMutation } from "@/api/projectsApi.js";
 import { useGetGhlUsersQuery } from "@/api/locationsApi.js";
 import { Button } from "@/components/ui/Button.jsx";
@@ -46,6 +47,7 @@ import { NewTaskDialog } from "@/components/NewTaskDialog.jsx";
 import { TaskDetail } from "@/components/TaskDetail.jsx";
 import { ProjectDialog } from "@/components/ProjectDialog.jsx";
 import { CalendarView } from "@/components/CalendarView.jsx";
+import { BoardView } from "@/components/BoardView.jsx";
 import { useSession } from "@/hooks/useSession.js";
 import { useCustomStatuses } from "@/hooks/useCustomStatuses.js";
 import { STATUSES, STATUS_LABEL, PRIORITIES, PRIORITY_LABEL } from "@/theme/status.js";
@@ -78,6 +80,7 @@ export function TasksPage() {
   const users = usersData?.users ?? [];
 
   const [deleteProjectMut] = useDeleteProjectMutation();
+  const [updateTask] = useUpdateTaskMutation();
   const { statuses: customStatuses } = useCustomStatuses(locId);
 
   const [openNew, setOpenNew] = useState(false);
@@ -86,7 +89,7 @@ export function TasksPage() {
   const [stack, setStack] = useState([]);
   const activeId = stack[stack.length - 1] ?? null;
   const [q, setQ] = useState("");
-  const [view, setView] = useState("list");
+  const [view, setView] = useState("board");
   const [calMonth, setCalMonth] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -201,10 +204,14 @@ export function TasksPage() {
     load();
   }
 
+  const isBoard = view === "board";
+
   return (
     <div className="min-h-screen">
-      <main className="w-full px-4 py-4 grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-6">
-        <aside>
+      <main
+        className={`w-full px-4 py-4 grid grid-cols-1 gap-6 lg:grid-cols-[220px_minmax(0,1fr)]`}
+      >
+        <aside className="min-w-0">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Projects</h2>
             <Button size="icon" variant="ghost" onClick={() => { setEditingProject(null); setOpenProject(true); }}>
@@ -281,8 +288,8 @@ export function TasksPage() {
           )}
         </aside>
 
-        <div>
-          <div className="flex items-end justify-between mb-6 gap-3 flex-wrap">
+        <div className="min-w-0">
+          <div className="flex items-end justify-between mb-4 gap-3 flex-wrap">
             <div>
               <h1 className="text-3xl font-semibold tracking-tight">Tasks</h1>
               <p className="text-sm text-muted-foreground mt-1">A clean workspace for your product work.</p>
@@ -305,16 +312,28 @@ export function TasksPage() {
                   <Video className="h-4 w-4 mr-1.5" />Perfect 10 Meeting
                 </Button>
               </Link>
-              <div className="inline-flex rounded-md border bg-card p-0.5">
+              <div className="inline-flex rounded-md border bg-card p-0.5" role="group" aria-label="Task view">
                 <button
-                  onClick={() => setView("list")}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded ${view === "list" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  type="button"
+                  onClick={() => setView("board")}
+                  title="Board view"
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded ${view === "board" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
                 >
-                  <LayoutGrid className="h-3.5 w-3.5" />List
+                  <Columns3 className="h-3.5 w-3.5" />Board
                 </button>
                 <button
+                  type="button"
+                  onClick={() => setView("list")}
+                  title="List view"
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded ${view === "list" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  <List className="h-3.5 w-3.5" />List
+                </button>
+                <button
+                  type="button"
                   onClick={() => setView("calendar")}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded ${view === "calendar" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  title="Calendar view"
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded ${view === "calendar" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
                 >
                   <CalendarDays className="h-3.5 w-3.5" />Calendar
                 </button>
@@ -323,7 +342,7 @@ export function TasksPage() {
             </div>
           </div>
 
-          <div className="space-y-3 mb-6">
+          <div className={`space-y-3 ${isBoard ? "mb-4" : "mb-6"}`}>
             <div className="relative max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search tasks…" className="pl-9" />
@@ -439,6 +458,15 @@ export function TasksPage() {
               projectById={projectById}
               customByKey={customByKey}
               onOpen={(id) => setStack([id])}
+            />
+          ) : view === "board" ? (
+            <BoardView
+              grouped={grouped}
+              allStatusKeys={allStatusKeys}
+              customByKey={customByKey}
+              projectById={projectById}
+              onOpen={(id) => setStack([id])}
+              onStatusChange={(id, payload) => updateTask({ id, ...payload }).unwrap()}
             />
           ) : (
             <div className="space-y-8">

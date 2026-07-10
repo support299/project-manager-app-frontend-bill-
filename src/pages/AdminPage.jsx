@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useDispatch } from "react-redux";
 import { Button } from "@/components/ui/Button.jsx";
 import { Input } from "@/components/ui/Input.jsx";
 import { Label } from "@/components/ui/Label.jsx";
@@ -22,8 +23,11 @@ import {
   useDeleteLocationMutation,
   useTestLocationMutation,
   useSyncLocationUsersMutation,
+  useSyncAllLocationUsersMutation,
+  useLazyGetSyncAllLocationUsersStatusQuery,
   useGetLocationUsersQuery,
 } from "@/api/locationsApi.js";
+import { baseApi } from "@/api/baseApi.js";
 import {
   useCreateStatusMutation,
   useUpdateStatusMutation,
@@ -41,11 +45,76 @@ function errMsg(err) {
 }
 
 export function AdminPage() {
+  const dispatch = useDispatch();
   const session = useSession();
   const [openAdd, setOpenAdd] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
+  const [syncTaskId, setSyncTaskId] = useState(null);
+  const pollRef = useRef(null);
+  const [syncAllLocationUsers, { isLoading: isStartingSyncAll }] = useSyncAllLocationUsersMutation();
+  const [fetchSyncStatus] = useLazyGetSyncAllLocationUsersStatusQuery();
   const { data: locations = [], isLoading, refetch } = useGetLocationsQuery(undefined, {
     skip: !session.loaded,
   });
+
+  const syncingAll = Boolean(syncTaskId) || isStartingSyncAll;
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  function finishSyncAll(r) {
+    setSyncResult(r);
+    setSyncTaskId(null);
+    dispatch(baseApi.util.invalidateTags([{ type: "User", id: "LIST" }]));
+    refetch();
+    const failed = r.failed ?? 0;
+    if (failed > 0) {
+      toast.warning(
+        `Synced ${r.succeeded}/${r.total_locations} locations — ${failed} failed. See details.`,
+      );
+    } else {
+      toast.success(
+        `Synced all ${r.total_locations} locations: ${r.total_users_synced} users, ${r.total_contacts_synced} contacts`,
+      );
+    }
+  }
+
+  async function pollSyncStatus(taskId) {
+    try {
+      const r = await fetchSyncStatus(taskId).unwrap();
+      if (r.status === "success") {
+        if (pollRef.current) clearInterval(pollRef.current);
+        pollRef.current = null;
+        finishSyncAll(r);
+      } else if (r.status === "failure") {
+        if (pollRef.current) clearInterval(pollRef.current);
+        pollRef.current = null;
+        setSyncTaskId(null);
+        toast.error(r.error || "Sync all failed");
+      }
+    } catch {
+      // keep polling on transient errors
+    }
+  }
+
+  async function syncAll() {
+    try {
+      const r = await syncAllLocationUsers().unwrap();
+      if (r.queued && r.task_id) {
+        toast.info("Sync started in background. This may take several minutes.");
+        setSyncTaskId(r.task_id);
+        await pollSyncStatus(r.task_id);
+        pollRef.current = setInterval(() => pollSyncStatus(r.task_id), 5000);
+        return;
+      }
+      finishSyncAll(r);
+    } catch (e) {
+      toast.error(errMsg(e));
+    }
+  }
 
   return (
     <div className="min-h-screen">
@@ -56,6 +125,17 @@ export function AdminPage() {
             <p className="text-sm text-muted-foreground">Manage your sub-accounts.</p>
           </div>
           <div className="flex gap-2">
+            {locations.length > 0 && (
+              <Button size="sm" variant="outline" onClick={syncAll} disabled={syncingAll}>
+                <RefreshCw className={`h-4 w-4 mr-1 ${syncingAll ? "animate-spin" : ""}`} />
+                {syncingAll ? "Syncing all…" : "Sync all users"}
+              </Button>
+            )}
+            {syncingAll && syncTaskId && (
+              <p className="text-xs text-muted-foreground self-center max-w-[140px]">
+                Running in background. You can keep this page open.
+              </p>
+            )}
             <Button size="sm" variant="outline" asChild>
               <Link to="/connect">
                 <Link2 className="h-4 w-4 mr-1" />
@@ -105,7 +185,96 @@ export function AdminPage() {
           </div>
         )}
       </main>
+
+      <SyncAllResultsDialog result={syncResult} onClose={() => setSyncResult(null)} />
     </div>
+  );
+}
+
+function SyncAllResultsDialog({ result, onClose }) {
+  const [showAll, setShowAll] = useState(false);
+  if (!result) return null;
+
+  const failures = (result.results ?? []).filter((r) => !r.ok);
+  const successes = (result.results ?? []).filter((r) => r.ok);
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle>Sync all users — results</DialogTitle>
+        </DialogHeader>
+
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="rounded-md border p-3">
+            <div className="text-muted-foreground text-xs">Locations</div>
+            <div className="font-semibold">
+              {result.succeeded}/{result.total_locations} succeeded
+            </div>
+          </div>
+          <div className="rounded-md border p-3">
+            <div className="text-muted-foreground text-xs">Failed</div>
+            <div className={`font-semibold ${result.failed > 0 ? "text-destructive" : ""}`}>
+              {result.failed}
+            </div>
+          </div>
+          <div className="rounded-md border p-3">
+            <div className="text-muted-foreground text-xs">Users synced</div>
+            <div className="font-semibold">{result.total_users_synced}</div>
+          </div>
+          <div className="rounded-md border p-3">
+            <div className="text-muted-foreground text-xs">Contacts synced</div>
+            <div className="font-semibold">{result.total_contacts_synced}</div>
+          </div>
+        </div>
+
+        {failures.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-destructive">Failed locations ({failures.length})</p>
+            <div className="border rounded-md divide-y max-h-40 overflow-y-auto">
+              {failures.map((r) => (
+                <div key={r.id} className="px-3 py-2 text-sm">
+                  <div className="font-medium">{r.name}</div>
+                  <div className="text-xs text-muted-foreground">{r.location_id}</div>
+                  <div className="text-xs text-destructive mt-0.5">{r.error}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {successes.length > 0 && (
+          <div className="space-y-2">
+            <button
+              type="button"
+              className="text-sm font-medium text-muted-foreground hover:text-foreground"
+              onClick={() => setShowAll((v) => !v)}
+            >
+              {showAll ? "Hide" : "Show"} successful locations ({successes.length})
+            </button>
+            {showAll && (
+              <div className="border rounded-md divide-y max-h-48 overflow-y-auto">
+                {successes.map((r) => (
+                  <div key={r.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{r.name}</div>
+                      <div className="text-xs text-muted-foreground truncate">{r.location_id}</div>
+                    </div>
+                    <div className="text-xs text-muted-foreground shrink-0">
+                      {r.users_synced} users · {r.contacts_synced} contacts
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

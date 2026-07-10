@@ -34,6 +34,17 @@ export const locationsApi = baseApi.injectEndpoints({
       transformResponse: unwrap,
       invalidatesTags: [{ type: "User", id: "LIST" }],
     }),
+    syncAllLocationUsers: builder.mutation({
+      query: () => ({ url: "/locations/sync-all-users/", method: "POST" }),
+      transformResponse: unwrap,
+    }),
+    getSyncAllLocationUsersStatus: builder.query({
+      query: (taskId) => ({
+        url: "/locations/sync-all-users/",
+        params: { task_id: taskId },
+      }),
+      transformResponse: unwrap,
+    }),
     getLocationUsers: builder.query({
       query: (id) => `/locations/${id}/users/`,
       transformResponse: unwrap,
@@ -78,6 +89,8 @@ export const {
   useDeleteLocationMutation,
   useTestLocationMutation,
   useSyncLocationUsersMutation,
+  useSyncAllLocationUsersMutation,
+  useLazyGetSyncAllLocationUsersStatusQuery,
   useGetLocationUsersQuery,
   useSetUserRoleMutation,
   useSearchGhlContactsMutation,

@@ -191,6 +191,26 @@ export const level10Api = baseApi.injectEndpoints({
         { type: "Level10Meeting", id: `${eventId}:${occurrence_key}` },
       ],
     }),
+    createLevel10RockNote: builder.mutation({
+      query: ({ eventId, rockId, occurrence_key, ...body }) => ({
+        url: `/level10/events/${eventId}/rocks/${rockId}/notes/`,
+        method: "POST",
+        body,
+      }),
+      transformResponse: (response) => unwrap(response),
+      invalidatesTags: (_r, _e, { eventId, occurrence_key }) => [
+        { type: "Level10Meeting", id: `${eventId}:${occurrence_key}` },
+      ],
+    }),
+    deleteLevel10RockNote: builder.mutation({
+      query: ({ eventId, rockId, noteId, occurrence_key }) => ({
+        url: `/level10/events/${eventId}/rocks/${rockId}/notes/${noteId}/`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (_r, _e, { eventId, occurrence_key }) => [
+        { type: "Level10Meeting", id: `${eventId}:${occurrence_key}` },
+      ],
+    }),
     createLevel10Headline: builder.mutation({
       query: ({ eventId, ...body }) => ({
         url: `/level10/events/${eventId}/headlines/`,
@@ -276,6 +296,8 @@ export const {
   useUpdateLevel10RockMutation,
   useDeleteLevel10RockMutation,
   useUpsertLevel10RockStatusMutation,
+  useCreateLevel10RockNoteMutation,
+  useDeleteLevel10RockNoteMutation,
   useCreateLevel10HeadlineMutation,
   useDeleteLevel10HeadlineMutation,
   useCreateLevel10IssueMutation,

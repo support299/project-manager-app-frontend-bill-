@@ -1,4 +1,4 @@
-export const STATUSES = ["backlog", "todo", "in_progress", "review", "done", "cancelled"];
+export const STATUSES = ["backlog", "todo", "in_progress", "review", "done", "archive", "cancelled"];
 
 export const PRIORITIES = ["low", "medium", "high", "urgent"];
 
@@ -8,6 +8,7 @@ export const STATUS_LABEL = {
   in_progress: "In progress",
   review: "Review",
   done: "Done",
+  archive: "Archive",
   cancelled: "Cancelled",
 };
 
