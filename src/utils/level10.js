@@ -94,7 +94,7 @@ export function fmt(ms) {
 
 /** Match current session to meeting host list (by ghl id, then name/email). */
 export function resolveMeetingHost({ hostIds, session, users = [] }) {
-  if (session?.isSuperAdmin) return true;
+  if (session?.isSuperAdmin || session?.isAdmin) return true;
   if (!hostIds?.length) return false;
 
   const ids = hostIds.map(String);

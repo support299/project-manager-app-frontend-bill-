@@ -108,7 +108,7 @@ export function AuthGate({ children }) {
   }
 
   const hasAppAccess =
-    accessToken && (session?.ghl_user_id || session?.is_super_admin);
+    accessToken && (session?.ghl_user_id || session?.is_admin || session?.is_super_admin);
   if (!hasAppAccess) {
     return <SignInRequired message={authError} />;
   }
