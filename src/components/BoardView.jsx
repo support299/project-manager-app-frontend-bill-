@@ -25,7 +25,6 @@ import { STATUS_LABEL, PRIORITY_LABEL } from "@/theme/status.js";
 import { toast } from "sonner";
 
 const COLUMN_WIDTH = 300;
-const HIDDEN_WHEN_EMPTY = new Set(["archive", "cancelled"]);
 
 function statusKeyForTask(task) {
   return task.custom_status_key ? `custom:${task.custom_status_key}` : task.status;
@@ -59,13 +58,8 @@ function columnAccent(statusKey, customByKey) {
   return map[statusKey] ?? "var(--muted)";
 }
 
-function visibleStatusKeys(allStatusKeys, grouped) {
-  return allStatusKeys.filter((key) => {
-    const count = (grouped[key] ?? []).length;
-    if (count > 0) return true;
-    if (HIDDEN_WHEN_EMPTY.has(key)) return false;
-    return true;
-  });
+function visibleStatusKeys(allStatusKeys) {
+  return allStatusKeys;
 }
 
 function resolveDropTarget(over, taskById) {
@@ -209,7 +203,15 @@ function BoardCardOverlay({ task, projectById }) {
   );
 }
 
-function BoardColumn({ statusKey, tasks, customByKey, projectById, onOpen, activeTaskId, suppressClick }) {
+function BoardColumn({
+  statusKey,
+  tasks,
+  customByKey,
+  projectById,
+  onOpen,
+  activeTaskId,
+  suppressClick,
+}) {
   const { setNodeRef, isOver } = useDroppable({
     id: `column-${statusKey}`,
     data: { type: "column", statusKey },
@@ -282,8 +284,8 @@ export function BoardView({
   const suppressClick = useRef(false);
 
   const columns = useMemo(
-    () => visibleStatusKeys(allStatusKeys, grouped),
-    [allStatusKeys, grouped],
+    () => visibleStatusKeys(allStatusKeys),
+    [allStatusKeys],
   );
 
   const taskById = useMemo(() => {

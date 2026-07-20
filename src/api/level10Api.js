@@ -63,6 +63,7 @@ export const level10Api = baseApi.injectEndpoints({
       transformResponse: (response) => unwrap(response),
       providesTags: (_r, _e, { eventId, occurrence_key }) => [
         { type: "Level10Meeting", id: `${eventId}:${occurrence_key}` },
+        { type: "Level10Meeting", id: eventId },
       ],
     }),
     upsertLevel10Timer: builder.mutation({
@@ -114,8 +115,8 @@ export const level10Api = baseApi.injectEndpoints({
         body,
       }),
       transformResponse: (response) => unwrap(response),
-      invalidatesTags: (_r, _e, { eventId, occurrence_key }) => [
-        { type: "Level10Meeting", id: `${eventId}:${occurrence_key}` },
+      invalidatesTags: (_r, _e, { eventId }) => [
+        { type: "Level10Meeting", id: eventId },
       ],
     }),
     updateLevel10Measurable: builder.mutation({
@@ -125,8 +126,8 @@ export const level10Api = baseApi.injectEndpoints({
         body,
       }),
       transformResponse: (response) => unwrap(response),
-      invalidatesTags: (_r, _e, { eventId, occurrence_key }) => [
-        { type: "Level10Meeting", id: `${eventId}:${occurrence_key}` },
+      invalidatesTags: (_r, _e, { eventId }) => [
+        { type: "Level10Meeting", id: eventId },
       ],
     }),
     deleteLevel10Measurable: builder.mutation({
@@ -134,8 +135,8 @@ export const level10Api = baseApi.injectEndpoints({
         url: `/level10/events/${eventId}/measurables/${measurableId}/`,
         method: "DELETE",
       }),
-      invalidatesTags: (_r, _e, { eventId, occurrence_key }) => [
-        { type: "Level10Meeting", id: `${eventId}:${occurrence_key}` },
+      invalidatesTags: (_r, _e, { eventId }) => [
+        { type: "Level10Meeting", id: eventId },
       ],
     }),
     upsertLevel10MeasurableValue: builder.mutation({
@@ -145,8 +146,9 @@ export const level10Api = baseApi.injectEndpoints({
         body,
       }),
       transformResponse: (response) => unwrap(response),
-      invalidatesTags: (_r, _e, { eventId, occurrence_key }) => [
-        { type: "Level10Meeting", id: `${eventId}:${occurrence_key}` },
+      // Invalidate all meeting views for this event so week-grid history stays in sync.
+      invalidatesTags: (_r, _e, { eventId }) => [
+        { type: "Level10Meeting", id: eventId },
       ],
     }),
     createLevel10Rock: builder.mutation({
@@ -156,8 +158,8 @@ export const level10Api = baseApi.injectEndpoints({
         body,
       }),
       transformResponse: (response) => unwrap(response),
-      invalidatesTags: (_r, _e, { eventId, occurrence_key }) => [
-        { type: "Level10Meeting", id: `${eventId}:${occurrence_key}` },
+      invalidatesTags: (_r, _e, { eventId }) => [
+        { type: "Level10Meeting", id: eventId },
       ],
     }),
     updateLevel10Rock: builder.mutation({
@@ -167,8 +169,8 @@ export const level10Api = baseApi.injectEndpoints({
         body,
       }),
       transformResponse: (response) => unwrap(response),
-      invalidatesTags: (_r, _e, { eventId, occurrence_key }) => [
-        { type: "Level10Meeting", id: `${eventId}:${occurrence_key}` },
+      invalidatesTags: (_r, _e, { eventId }) => [
+        { type: "Level10Meeting", id: eventId },
       ],
     }),
     deleteLevel10Rock: builder.mutation({
@@ -176,8 +178,8 @@ export const level10Api = baseApi.injectEndpoints({
         url: `/level10/events/${eventId}/rocks/${rockId}/`,
         method: "DELETE",
       }),
-      invalidatesTags: (_r, _e, { eventId, occurrence_key }) => [
-        { type: "Level10Meeting", id: `${eventId}:${occurrence_key}` },
+      invalidatesTags: (_r, _e, { eventId }) => [
+        { type: "Level10Meeting", id: eventId },
       ],
     }),
     upsertLevel10RockStatus: builder.mutation({
@@ -187,8 +189,8 @@ export const level10Api = baseApi.injectEndpoints({
         body,
       }),
       transformResponse: (response) => unwrap(response),
-      invalidatesTags: (_r, _e, { eventId, occurrence_key }) => [
-        { type: "Level10Meeting", id: `${eventId}:${occurrence_key}` },
+      invalidatesTags: (_r, _e, { eventId }) => [
+        { type: "Level10Meeting", id: eventId },
       ],
     }),
     createLevel10RockNote: builder.mutation({
@@ -198,8 +200,8 @@ export const level10Api = baseApi.injectEndpoints({
         body,
       }),
       transformResponse: (response) => unwrap(response),
-      invalidatesTags: (_r, _e, { eventId, occurrence_key }) => [
-        { type: "Level10Meeting", id: `${eventId}:${occurrence_key}` },
+      invalidatesTags: (_r, _e, { eventId }) => [
+        { type: "Level10Meeting", id: eventId },
       ],
     }),
     deleteLevel10RockNote: builder.mutation({
@@ -207,8 +209,8 @@ export const level10Api = baseApi.injectEndpoints({
         url: `/level10/events/${eventId}/rocks/${rockId}/notes/${noteId}/`,
         method: "DELETE",
       }),
-      invalidatesTags: (_r, _e, { eventId, occurrence_key }) => [
-        { type: "Level10Meeting", id: `${eventId}:${occurrence_key}` },
+      invalidatesTags: (_r, _e, { eventId }) => [
+        { type: "Level10Meeting", id: eventId },
       ],
     }),
     createLevel10Headline: builder.mutation({

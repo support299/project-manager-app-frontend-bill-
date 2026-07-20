@@ -4,7 +4,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Plus,
-  ArrowLeft,
   MapPin,
   Video,
   Calendar as CalIcon,
@@ -231,11 +230,6 @@ export function Level10Page() {
     <div className="min-h-screen bg-background">
       <div className="border-b bg-card">
         <div className="max-w-[1600px] mx-auto px-4 py-3 flex items-center gap-3">
-          <Link to="/">
-            <Button variant="ghost" size="sm" className="h-9">
-              <ArrowLeft className="h-4 w-4 mr-1.5" />Back
-            </Button>
-          </Link>
           <h1 className="text-lg font-semibold flex items-center gap-2">
             <Video className="h-5 w-5" />Perfect 10 Meeting
           </h1>
@@ -302,12 +296,22 @@ export function Level10Page() {
                   <div className="space-y-1">
                     {dayOccs.slice(0, 3).map((occ) => {
                       const e = occ.event;
-                      const active = selectedId === e.id;
+                      // Only this occurrence looks selected — not every repeat of the series.
+                      const active = selectedId === e.id
+                        && selectedOccDate
+                        && dateKey(selectedOccDate) === dateKey(occ.date);
+                      const sameSeries = selectedId === e.id && !active;
                       return (
                         <button
                           key={occ.key}
                           onClick={() => { setSelectedId(e.id); setSelectedOccDate(occ.date); }}
-                          className={`w-full text-left px-1.5 py-1 rounded truncate flex items-center gap-1 ${active ? "bg-primary text-primary-foreground" : "bg-primary/10 hover:bg-primary/20"}`}
+                          className={`w-full text-left px-1.5 py-1 rounded truncate flex items-center gap-1 ${
+                            active
+                              ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-1 ring-offset-background"
+                              : sameSeries
+                                ? "bg-primary/15 hover:bg-primary/25 border border-primary/20"
+                                : "bg-primary/10 hover:bg-primary/20"
+                          }`}
                         >
                           {e.recurrence !== "none" ? <Repeat className="h-3 w-3 shrink-0" /> : (e.location_type === "online" ? <Video className="h-3 w-3 shrink-0" /> : <MapPin className="h-3 w-3 shrink-0" />)}
                           <span className="truncate">{occ.date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} {e.title}</span>

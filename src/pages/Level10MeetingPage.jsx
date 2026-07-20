@@ -11,14 +11,8 @@ import {
   Plus,
   Pencil,
   Trash2,
-  CheckCircle2,
-  Circle,
   X,
-  Search,
-  Folder,
-  Phone,
-  Calendar,
-  User as UserIcon,
+  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -27,16 +21,7 @@ import {
   useCreateLevel10SegueMutation,
   useUpdateLevel10SegueMutation,
   useDeleteLevel10SegueMutation,
-  useCreateLevel10MeasurableMutation,
-  useUpdateLevel10MeasurableMutation,
-  useDeleteLevel10MeasurableMutation,
-  useUpsertLevel10MeasurableValueMutation,
   useCreateLevel10RockMutation,
-  useUpdateLevel10RockMutation,
-  useDeleteLevel10RockMutation,
-  useUpsertLevel10RockStatusMutation,
-  useCreateLevel10RockNoteMutation,
-  useDeleteLevel10RockNoteMutation,
   useCreateLevel10HeadlineMutation,
   useDeleteLevel10HeadlineMutation,
   useCreateLevel10IssueMutation,
@@ -45,15 +30,13 @@ import {
   useUpsertLevel10RatingMutation,
 } from "@/api/level10Api.js";
 import { useGetGhlUsersQuery } from "@/api/locationsApi.js";
-import { useGetTasksQuery } from "@/api/tasksApi.js";
-import { useGetProjectsQuery } from "@/api/projectsApi.js";
 import { getIdentity, setIdentity } from "@/utils/session.js";
 import { useSession } from "@/hooks/useSession.js";
-import { fmt, resolveAssigneeFromOwner, resolveMeetingHost } from "@/utils/level10.js";
-import { NewTaskDialog } from "@/components/NewTaskDialog.jsx";
-import { TaskDetail } from "@/components/TaskDetail.jsx";
-import { STATUSES, STATUS_LABEL, PRIORITIES, PRIORITY_LABEL } from "@/theme/status.js";
-import { useCustomStatuses } from "@/hooks/useCustomStatuses.js";
+import { fmt, resolveMeetingHost, parseOccurrenceDate, scorecardQuarterFromDate } from "@/utils/level10.js";
+import { ScorecardPanel } from "@/components/level10/ScorecardPanel.jsx";
+import { GemReviewPanel } from "@/components/level10/GemReviewPanel.jsx";
+import { OfficeTodosPanel } from "@/components/OfficeTodosPanel.jsx";
+import { useCreateOfficeTodoMutation } from "@/api/officeTodosApi.js";
 import { Button } from "@/components/ui/Button.jsx";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/Tabs.jsx";
 import {
@@ -73,21 +56,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/Select.jsx";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover.jsx";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/Command.jsx";
 import { Checkbox } from "@/components/ui/Checkbox.jsx";
 
 const AGENDA_TABS = [
   { value: "segue", label: "Segue" },
   { value: "scorecard", label: "Scorecard" },
-  { value: "rock-review", label: "Rock Review" },
+  { value: "rock-review", label: "Gem Review" },
   { value: "headlines", label: "Headlines" },
   { value: "issue-solver", label: "Issue Solver" },
   { value: "todo-review", label: "To-Do Review" },
@@ -109,8 +83,8 @@ const IDS_STAGES = [
 const DECIPHER_OPTIONS = [
   { value: "clarity", label: "Decipher", hint: "To help with clarity — needs more information before deciding next steps." },
   { value: "issue", label: "Issue", hint: "A problem to solve — e.g. We are not getting enough clients." },
-  { value: "task", label: "Task", hint: "A single action item — e.g. Send Josh a CRM payment." },
-  { value: "rock", label: "Rock", hint: "A 90-day priority — e.g. Sign 10 clients in 10 days." },
+  { value: "task", label: "To-Do", hint: "A single action item — e.g. Send Josh a CRM payment." },
+  { value: "rock", label: "Gem", hint: "A priority (quarterly or yearly) — e.g. Sign 10 clients in 10 days." },
 ];
 
 function formatMeetingDate(occurrenceKey) {
@@ -118,9 +92,6 @@ function formatMeetingDate(occurrenceKey) {
   const d = new Date(occurrenceKey);
   return Number.isNaN(d.getTime()) ? occurrenceKey : d.toLocaleDateString();
 }
-
-const ALL = "__all__";
-const NONE = "__none__";
 
 function apiError(err, fallback) {
   const data = err?.data;
@@ -354,7 +325,7 @@ export function Level10MeetingPage() {
         </div>
       </div>
 
-      <div className="max-w-[1600px] mx-auto px-4 py-4 grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4">
+      <div className="max-w-[1600px] mx-auto px-4 py-4 grid grid-cols-1 lg:grid-cols-[340px_minmax(0,1fr)] gap-4">
         <div className="space-y-4">
           <div className="rounded-lg border bg-card p-3">
             <h3 className="font-medium mb-3">Meeting Agenda</h3>
@@ -415,7 +386,7 @@ export function Level10MeetingPage() {
           </div>
         </div>
 
-        <div className="rounded-lg border bg-card min-h-[400px]">
+        <div className="rounded-lg border bg-card min-h-[400px] min-w-0 overflow-hidden">
           {agendaTab === "segue" ? (
             <SeguePanel
               segues={segues}
@@ -427,6 +398,7 @@ export function Level10MeetingPage() {
           ) : agendaTab === "scorecard" ? (
             <ScorecardPanel
               eventId={eventId}
+              event={event}
               occurrenceKey={occurrenceKey}
               measurables={measurables}
               values={mValues}
@@ -434,8 +406,9 @@ export function Level10MeetingPage() {
               users={users}
             />
           ) : agendaTab === "rock-review" ? (
-            <RockReviewPanel
+            <GemReviewPanel
               eventId={eventId}
+              event={event}
               occurrenceKey={occurrenceKey}
               rocks={rocks}
               statuses={rockStatuses}
@@ -455,12 +428,21 @@ export function Level10MeetingPage() {
               isHost={isHost}
               users={users}
               locationId={locId}
-              session={session}
+              onNavigateAgenda={setAgendaTab}
             />
           ) : agendaTab === "todo-review" ? (
-            <TodoReviewPanel locationId={locId} users={users} session={session} />
+            <div className="p-6">
+              <OfficeTodosPanel locationId={locId} eventId={eventId} users={users} />
+            </div>
           ) : agendaTab === "conclude" ? (
-            <ConcludePanel eventId={eventId} occurrenceKey={occurrenceKey} ratings={ratings} />
+            <ConcludePanel
+              eventId={eventId}
+              occurrenceKey={occurrenceKey}
+              ratings={ratings}
+              isHost={isHost}
+              attendeeIds={attendeeIds}
+              users={users}
+            />
           ) : (
             <div className="p-8 text-sm text-muted-foreground">
               {AGENDA_TABS.find((t) => t.value === agendaTab)?.label} — coming soon.
@@ -608,582 +590,6 @@ function PostSegueDialog({ open, onOpenChange, eventId, occurrenceKey, editing }
   );
 }
 
-function ScorecardPanel({ eventId, occurrenceKey, measurables, values, isHost, users }) {
-  const [newName, setNewName] = useState("");
-  const [newOwner, setNewOwner] = useState("");
-  const [newGoal, setNewGoal] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [editGoal, setEditGoal] = useState("");
-  const [editName, setEditName] = useState("");
-  const [editOwner, setEditOwner] = useState("");
-
-  const [createMeasurable] = useCreateLevel10MeasurableMutation();
-  const [updateMeasurable] = useUpdateLevel10MeasurableMutation();
-  const [deleteMeasurableMut] = useDeleteLevel10MeasurableMutation();
-  const [upsertValue] = useUpsertLevel10MeasurableValueMutation();
-
-  const valueByMeasurable = useMemo(() => {
-    const m = new Map();
-    for (const v of values) m.set(v.measurable_id, v);
-    return m;
-  }, [values]);
-
-  async function addMeasurable() {
-    const name = newName.trim();
-    if (!name) return toast.error("Measurable name is required");
-    const goalNum = newGoal.trim() === "" ? null : Number(newGoal);
-    if (goalNum !== null && Number.isNaN(goalNum)) return toast.error("Goal must be a number");
-    setAdding(true);
-    try {
-      await createMeasurable({
-        eventId,
-        occurrence_key: occurrenceKey,
-        name,
-        owner: newOwner.trim() || null,
-        goal: goalNum,
-        sort_order: measurables.length,
-      }).unwrap();
-      setNewName("");
-      setNewOwner("");
-      setNewGoal("");
-      toast.success("Measurable added");
-    } catch (err) {
-      toast.error(apiError(err, "Failed to add measurable"));
-    } finally {
-      setAdding(false);
-    }
-  }
-
-  async function setActual(m, raw) {
-    const num = raw.trim() === "" ? null : Number(raw);
-    if (num !== null && Number.isNaN(num)) return toast.error("Actual must be a number");
-    try {
-      await upsertValue({
-        eventId,
-        measurableId: m.id,
-        occurrence_key: occurrenceKey,
-        actual: num,
-      }).unwrap();
-    } catch (err) {
-      toast.error(apiError(err, "Failed to update actual"));
-    }
-  }
-
-  function startEdit(m) {
-    setEditingId(m.id);
-    setEditName(m.name);
-    setEditOwner(m.owner || "");
-    setEditGoal(m.goal == null ? "" : String(m.goal));
-  }
-
-  async function saveEdit(m) {
-    if (!isHost) return toast.error("Only meeting hosts can edit measurables");
-    const goalNum = editGoal.trim() === "" ? null : Number(editGoal);
-    if (goalNum !== null && Number.isNaN(goalNum)) return toast.error("Goal must be a number");
-    try {
-      await updateMeasurable({
-        eventId,
-        measurableId: m.id,
-        occurrence_key: occurrenceKey,
-        name: editName.trim() || m.name,
-        owner: editOwner.trim() || null,
-        goal: goalNum,
-      }).unwrap();
-      setEditingId(null);
-      toast.success("Measurable updated");
-    } catch (err) {
-      toast.error(apiError(err, "Failed to update measurable"));
-    }
-  }
-
-  async function deleteMeasurable(m) {
-    if (!isHost) return toast.error("Only meeting hosts can delete measurables");
-    if (!confirm(`Delete measurable "${m.name}"? This removes it from all occurrences.`)) return;
-    try {
-      await deleteMeasurableMut({ eventId, measurableId: m.id, occurrence_key: occurrenceKey }).unwrap();
-      toast.success("Measurable deleted");
-    } catch (err) {
-      toast.error(apiError(err, "Failed to delete measurable"));
-    }
-  }
-
-  function statusFor(m, v) {
-    if (!v || v.actual == null || m.goal == null) return "none";
-    return v.actual >= m.goal ? "on" : "off";
-  }
-
-  return (
-    <div className="p-6">
-      <div className="mb-5">
-        <h2 className="text-2xl font-bold tracking-tight">Scorecard</h2>
-        <p className="text-sm text-muted-foreground mt-1">Review weekly measurables · 5 minutes</p>
-      </div>
-      <div className="rounded-lg border bg-muted/30 p-4">
-        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Weekly Measurables</div>
-        <div className="hidden md:grid grid-cols-[2fr_1fr_0.7fr_1fr_1fr_72px] gap-3 px-2 pb-2 text-xs uppercase tracking-wide text-muted-foreground">
-          <div>Measurable</div>
-          <div>Owner</div>
-          <div>Goal</div>
-          <div>Actual</div>
-          <div>Status</div>
-          {isHost && <div className="text-right">Actions</div>}
-        </div>
-        <div className="divide-y rounded-md border bg-card">
-          {measurables.length === 0 ? (
-            <div className="p-6 text-sm text-muted-foreground text-center">No measurables yet{isHost ? " — add one below" : ""}.</div>
-          ) : (
-            measurables.map((m) => {
-              const v = valueByMeasurable.get(m.id);
-              const st = statusFor(m, v);
-              const isEditing = editingId === m.id;
-              return (
-                <div key={m.id} className="grid grid-cols-1 md:grid-cols-[2fr_1fr_0.7fr_1fr_1fr_72px] gap-3 items-center px-3 py-3">
-                  {isEditing ? (
-                    <>
-                      <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
-                      <Input value={editOwner} onChange={(e) => setEditOwner(e.target.value)} placeholder="Owner" />
-                      <Input value={editGoal} onChange={(e) => setEditGoal(e.target.value)} placeholder="Goal" inputMode="decimal" />
-                    </>
-                  ) : (
-                    <>
-                      <div className="font-medium">{m.name}</div>
-                      <div className="text-sm text-foreground/80">{m.owner || "—"}</div>
-                      <div className="text-sm">{m.goal == null ? "—" : m.goal}</div>
-                    </>
-                  )}
-                  <Input
-                    defaultValue={v?.actual == null ? "" : String(v.actual)}
-                    key={`${m.id}-${v?.id || "new"}-${v?.actual ?? ""}`}
-                    onBlur={(e) => {
-                      const cur = v?.actual == null ? "" : String(v.actual);
-                      if (e.target.value !== cur) setActual(m, e.target.value);
-                    }}
-                    placeholder="—"
-                    inputMode="decimal"
-                    className="text-center"
-                  />
-                  <div>
-                    {st === "on" && (
-                      <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">✓ On</span>
-                    )}
-                    {st === "off" && (
-                      <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-destructive/15 text-destructive">✗ Off</span>
-                    )}
-                    {st === "none" && <span className="text-xs text-muted-foreground">—</span>}
-                  </div>
-                  <div className="flex items-center justify-end gap-1">
-                    {isHost && (isEditing ? (
-                      <>
-                        <Button size="sm" onClick={() => saveEdit(m)}>Save</Button>
-                        <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Cancel</Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => startEdit(m)} title="Edit measurable">
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => deleteMeasurable(m)} title="Delete measurable">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </>
-                    ))}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-        <div className="mt-3 grid grid-cols-1 md:grid-cols-[2fr_1fr_0.7fr_auto] gap-2">
-          <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Measurable name" />
-          <Input value={newOwner} onChange={(e) => setNewOwner(e.target.value)} placeholder="Owner" list="scorecard-owners" />
-          <datalist id="scorecard-owners">
-            {users.map((u) => <option key={u.ghl_id} value={u.name || u.email || u.ghl_id} />)}
-          </datalist>
-          <Input value={newGoal} onChange={(e) => setNewGoal(e.target.value)} placeholder="Goal" inputMode="decimal" />
-          <Button onClick={addMeasurable} disabled={adding}><Plus className="h-4 w-4 mr-1.5" />Add</Button>
-        </div>
-        {!isHost && (
-          <p className="mt-3 text-xs text-muted-foreground">
-            Anyone can add measurables and set actuals. Only meeting hosts can edit goals or delete measurables.
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function rockDueInputValue(dueDate) {
-  if (!dueDate) return "";
-  return dueDate.slice(0, 10);
-}
-
-function formatRockDueDate(dueDate) {
-  if (!dueDate) return null;
-  const d = new Date(`${dueDate.slice(0, 10)}T12:00:00`);
-  return Number.isNaN(d.getTime()) ? dueDate : d.toLocaleDateString();
-}
-
-function authorInitials(name) {
-  const parts = (name || "?").trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
-}
-
-function formatNoteTimestamp(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return "Just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return d.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
-  });
-}
-
-function RockNotesSection({
-  rockId,
-  notes,
-  eventId,
-  occurrenceKey,
-  session,
-  identityKey,
-  isHost,
-}) {
-  const [composing, setComposing] = useState(false);
-  const [body, setBody] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [createNote] = useCreateLevel10RockNoteMutation();
-  const [deleteNote] = useDeleteLevel10RockNoteMutation();
-
-  const authorName = session.name || getIdentity()?.name || "";
-  const authorIdentity = identityKey || getIdentity()?.email || getIdentity()?.name || authorName;
-
-  function canDeleteNote(note) {
-    if (identityKey && note.author_identity && note.author_identity === identityKey) return true;
-    if (session.name && note.author_name === session.name) return true;
-    if (getIdentity()?.name && note.author_name === getIdentity().name) return true;
-    return isHost;
-  }
-
-  async function submitNote() {
-    const text = body.trim();
-    if (!text) return toast.error("Please enter a note");
-    if (!authorName.trim()) return toast.error("Please sign in or set your name to add a note");
-    setSaving(true);
-    try {
-      await createNote({
-        eventId,
-        rockId,
-        occurrence_key: occurrenceKey,
-        author_name: authorName.trim(),
-        author_identity: authorIdentity,
-        body: text,
-      }).unwrap();
-      setBody("");
-      setComposing(false);
-    } catch (err) {
-      toast.error(apiError(err, "Failed to add note"));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function removeNote(note) {
-    if (!confirm("Delete this note?")) return;
-    try {
-      await deleteNote({
-        eventId,
-        rockId,
-        noteId: note.id,
-        occurrence_key: occurrenceKey,
-      }).unwrap();
-    } catch (err) {
-      toast.error(apiError(err, "Failed to delete note"));
-    }
-  }
-
-  return (
-    <div className="border-t bg-muted/15 px-4 py-3">
-      {notes.length > 0 ? (
-        <div className="space-y-3 mb-3">
-          {notes.map((note) => (
-            <div key={note.id} className="flex gap-3 group">
-              <div
-                className="h-8 w-8 shrink-0 rounded-full bg-primary/10 text-primary text-xs font-semibold flex items-center justify-center"
-                aria-hidden
-              >
-                {authorInitials(note.author_name)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-medium text-foreground">{note.author_name}</span>
-                  <span className="text-xs text-muted-foreground">{formatNoteTimestamp(note.created_at)}</span>
-                  {canDeleteNote(note) ? (
-                    <button
-                      type="button"
-                      onClick={() => removeNote(note)}
-                      className="opacity-0 group-hover:opacity-100 text-xs text-muted-foreground hover:text-destructive transition"
-                    >
-                      Delete
-                    </button>
-                  ) : null}
-                </div>
-                <p className="mt-0.5 text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed">{note.body}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {composing ? (
-        <div className="rounded-md border bg-card p-3 space-y-2">
-          <div className="text-xs text-muted-foreground">
-            Adding note as <span className="font-medium text-foreground">{authorName || "—"}</span>
-          </div>
-          <Textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder="Add context, blockers, or progress updates…"
-            rows={3}
-            autoFocus
-          />
-          <div className="flex items-center justify-end gap-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => { setComposing(false); setBody(""); }}
-              disabled={saving}
-            >
-              Cancel
-            </Button>
-            <Button size="sm" onClick={submitNote} disabled={saving}>
-              Add note
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setComposing(true)}
-          className="text-sm text-muted-foreground hover:text-foreground transition inline-flex items-center gap-1.5"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Add a note
-        </button>
-      )}
-    </div>
-  );
-}
-
-function RockReviewPanel({ eventId, occurrenceKey, rocks, statuses, rockNotes, isHost, users, session, identityKey }) {
-  const [newDesc, setNewDesc] = useState("");
-  const [newOwner, setNewOwner] = useState("");
-  const [newDueDate, setNewDueDate] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [editDesc, setEditDesc] = useState("");
-  const [editOwner, setEditOwner] = useState("");
-  const [editDueDate, setEditDueDate] = useState("");
-
-  const [createRock] = useCreateLevel10RockMutation();
-  const [updateRock] = useUpdateLevel10RockMutation();
-  const [deleteRockMut] = useDeleteLevel10RockMutation();
-  const [upsertRockStatus] = useUpsertLevel10RockStatusMutation();
-
-  const statusByRock = useMemo(() => {
-    const m = new Map();
-    for (const s of statuses) m.set(s.rock_id, s);
-    return m;
-  }, [statuses]);
-
-  const notesByRock = useMemo(() => {
-    const m = new Map();
-    for (const n of rockNotes) {
-      const list = m.get(n.rock_id) ?? [];
-      list.push(n);
-      m.set(n.rock_id, list);
-    }
-    return m;
-  }, [rockNotes]);
-
-  async function addRock() {
-    const description = newDesc.trim();
-    if (!description) return toast.error("Rock description is required");
-    setAdding(true);
-    try {
-      await createRock({
-        eventId,
-        occurrence_key: occurrenceKey,
-        description,
-        owner: newOwner.trim() || null,
-        due_date: newDueDate || null,
-        sort_order: rocks.length,
-      }).unwrap();
-      setNewDesc("");
-      setNewOwner("");
-      setNewDueDate("");
-      toast.success("Rock added");
-    } catch (err) {
-      toast.error(apiError(err, "Failed to add rock"));
-    } finally {
-      setAdding(false);
-    }
-  }
-
-  async function cycleStatus(rock) {
-    const cur = statusByRock.get(rock.id)?.status ?? "not_set";
-    const next = cur === "not_set" ? "on_track" : cur === "on_track" ? "off_track" : "not_set";
-    try {
-      await upsertRockStatus({ eventId, rockId: rock.id, occurrence_key: occurrenceKey, status: next }).unwrap();
-    } catch (err) {
-      toast.error(apiError(err, "Failed to update rock status"));
-    }
-  }
-
-  function startEdit(r) {
-    setEditingId(r.id);
-    setEditDesc(r.description);
-    setEditOwner(r.owner || "");
-    setEditDueDate(rockDueInputValue(r.due_date));
-  }
-
-  async function saveEdit(r) {
-    if (!isHost) return toast.error("Only meeting hosts can edit rocks");
-    try {
-      await updateRock({
-        eventId,
-        rockId: r.id,
-        occurrence_key: occurrenceKey,
-        description: editDesc.trim() || r.description,
-        owner: editOwner.trim() || null,
-        due_date: editDueDate || null,
-      }).unwrap();
-      setEditingId(null);
-      toast.success("Rock updated");
-    } catch (err) {
-      toast.error(apiError(err, "Failed to update rock"));
-    }
-  }
-
-  async function deleteRock(r) {
-    if (!isHost) return toast.error("Only meeting hosts can delete rocks");
-    if (!confirm(`Delete rock "${r.description}"? This removes it from all occurrences.`)) return;
-    try {
-      await deleteRockMut({ eventId, rockId: r.id, occurrence_key: occurrenceKey }).unwrap();
-      toast.success("Rock deleted");
-    } catch (err) {
-      toast.error(apiError(err, "Failed to delete rock"));
-    }
-  }
-
-  return (
-    <div className="p-6">
-      <div className="mb-5">
-        <h2 className="text-2xl font-bold tracking-tight">Rock Review</h2>
-        <p className="text-sm text-muted-foreground mt-1">Quarterly priorities on track? · 5 minutes</p>
-      </div>
-      <div className="rounded-lg border bg-muted/30 p-4">
-        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Quarterly Rocks</div>
-        <div className="space-y-2">
-          {rocks.length === 0 ? (
-            <div className="rounded-md border bg-card p-6 text-sm text-muted-foreground text-center">No rocks yet — add one below.</div>
-          ) : (
-            rocks.map((r) => {
-              const st = statusByRock.get(r.id)?.status ?? "not_set";
-              const isEditing = editingId === r.id;
-              const notes = notesByRock.get(r.id) ?? [];
-              return (
-                <div key={r.id} className={`rounded-md border bg-card overflow-hidden ${st === "on_track" ? "bg-emerald-500/5 border-emerald-500/30" : ""}`}>
-                  <div className="px-4 py-3 flex items-start gap-3">
-                    <button type="button" onClick={() => cycleStatus(r)} className="shrink-0 mt-0.5" aria-label="Toggle rock status">
-                      {st === "on_track" ? <CheckCircle2 className="h-6 w-6 text-emerald-600" /> : st === "off_track" ? <CheckCircle2 className="h-6 w-6 text-destructive" /> : <Circle className="h-6 w-6 text-muted-foreground" />}
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      {isEditing ? (
-                        <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr] gap-2">
-                          <Input value={editDesc} onChange={(e) => setEditDesc(e.target.value)} placeholder="Rock description" />
-                          <Input value={editOwner} onChange={(e) => setEditOwner(e.target.value)} placeholder="Owner" />
-                          <Input type="date" value={editDueDate} onChange={(e) => setEditDueDate(e.target.value)} />
-                        </div>
-                      ) : (
-                        <>
-                          <div className="font-medium">{r.description}</div>
-                          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-                            <span>{r.owner || "No owner"}</span>
-                            {r.due_date ? (
-                              <span className="inline-flex items-center gap-1">
-                                <Calendar className="h-3.5 w-3.5" />
-                                Due {formatRockDueDate(r.due_date)}
-                              </span>
-                            ) : null}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                    {!isEditing && (
-                      <div className="shrink-0 flex flex-col items-end gap-2">
-                        <div>
-                          {st === "on_track" && <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">On Track</span>}
-                          {st === "off_track" && <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-destructive/15 text-destructive">Off Track</span>}
-                          {st === "not_set" && <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-muted text-muted-foreground">Not set</span>}
-                        </div>
-                        {isHost && (
-                          <div className="flex items-center gap-1">
-                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => startEdit(r)}><Pencil className="h-3.5 w-3.5" /></Button>
-                            <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => deleteRock(r)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {isEditing && isHost && (
-                      <div className="flex items-center gap-1 shrink-0">
-                        <Button size="sm" onClick={() => saveEdit(r)}>Save</Button>
-                        <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Cancel</Button>
-                      </div>
-                    )}
-                  </div>
-                  {!isEditing ? (
-                    <RockNotesSection
-                      rockId={r.id}
-                      notes={notes}
-                      eventId={eventId}
-                      occurrenceKey={occurrenceKey}
-                      session={session}
-                      identityKey={identityKey}
-                      isHost={isHost}
-                    />
-                  ) : null}
-                </div>
-              );
-            })
-          )}
-        </div>
-        <div className="mt-3">
-          <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_auto] gap-2">
-            <Input value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Rock description" />
-            <Input value={newOwner} onChange={(e) => setNewOwner(e.target.value)} placeholder="Owner" list="rocks-owners" />
-            <Input type="date" value={newDueDate} onChange={(e) => setNewDueDate(e.target.value)} />
-            <Button onClick={addRock} disabled={adding}><Plus className="h-4 w-4 mr-1.5" />Add</Button>
-          </div>
-          <datalist id="rocks-owners">{users.map((u) => <option key={u.ghl_id} value={u.name || u.email || u.ghl_id} />)}</datalist>
-        </div>
-        {!isHost && <p className="mt-3 text-xs text-muted-foreground">Anyone can add rocks and update status. Only meeting hosts can edit or delete rocks.</p>}
-      </div>
-    </div>
-  );
-}
-
 function HeadlinesPanel({ eventId, occurrenceKey, headlines }) {
   const [kind, setKind] = useState("people");
   const [text, setText] = useState("");
@@ -1254,7 +660,7 @@ function HeadlinesPanel({ eventId, occurrenceKey, headlines }) {
   );
 }
 
-function IssueSolverPanel({ eventId, occurrenceKey, issues, isHost, users, locationId, session }) {
+function IssueSolverPanel({ eventId, occurrenceKey, issues, isHost, users, locationId, onNavigateAgenda }) {
   const [newDesc, setNewDesc] = useState("");
   const [newOwner, setNewOwner] = useState("");
   const [newDecipher, setNewDecipher] = useState("");
@@ -1263,16 +669,14 @@ function IssueSolverPanel({ eventId, occurrenceKey, issues, isHost, users, locat
   const [editingId, setEditingId] = useState(null);
   const [editDesc, setEditDesc] = useState("");
   const [editOwner, setEditOwner] = useState("");
-  const [issueForTask, setIssueForTask] = useState(null);
-  const [openTaskFromIssue, setOpenTaskFromIssue] = useState(false);
+  const [convertingId, setConvertingId] = useState(null);
 
   const [createIssue] = useCreateLevel10IssueMutation();
   const [updateIssue] = useUpdateLevel10IssueMutation();
   const [deleteIssueMut] = useDeleteLevel10IssueMutation();
   const [createRock] = useCreateLevel10RockMutation();
-
-  const locationParams = locationId ? { location_id: locationId } : {};
-  const { data: projects = [] } = useGetProjectsQuery(locationParams, { skip: !locationId });
+  const [createOfficeTodo] = useCreateOfficeTodoMutation();
+  const session = useSession();
 
   const ownerOptions = useMemo(
     () => users.map((u) => u.name).filter(Boolean),
@@ -1373,43 +777,65 @@ function IssueSolverPanel({ eventId, occurrenceKey, issues, isHost, users, locat
     }
   }
 
-  async function convertToTask(issue) {
-    setIssueForTask(issue);
-    setOpenTaskFromIssue(true);
-  }
-
-  async function handleTaskCreatedFromIssue() {
-    if (!issueForTask) return;
-    try {
-      await setStatus(issueForTask, "solved");
-    } catch {
-      /* setStatus already toasts */
+  async function convertToTodo(issue) {
+    if (!locationId) {
+      toast.error("Location is required to create a to-do");
+      return;
     }
-    setIssueForTask(null);
+    if (!eventId) {
+      toast.error("Event is required to create a to-do");
+      return;
+    }
+    const meetingDate = parseOccurrenceDate(occurrenceKey) || new Date();
+    const dueDate = meetingDate.toISOString().slice(0, 10);
+    setConvertingId(issue.id);
+    try {
+      const todo = await createOfficeTodo({
+        title: issue.description,
+        who: issue.owner?.trim() || "All",
+        due_date: dueDate,
+        location_id: locationId,
+        event_id: eventId,
+        created_by: session.name || undefined,
+      }).unwrap();
+      await updateIssue({
+        eventId,
+        issueId: issue.id,
+        occurrence_key: occurrenceKey,
+        converted_todo_id: todo.id,
+      }).unwrap();
+      toast.success("Created to-do from issue — mark issue solved when ready");
+    } catch (err) {
+      toast.error(apiError(err, "Failed to create to-do"));
+    } finally {
+      setConvertingId(null);
+    }
   }
-
-  const taskFromIssueInitial = useMemo(() => {
-    if (!issueForTask) return null;
-    const assignee = resolveAssigneeFromOwner(issueForTask.owner, users, session);
-    return {
-      title: issueForTask.description,
-      description: "",
-      assignee: assignee ? { id: assignee.id, name: assignee.name } : null,
-    };
-  }, [issueForTask, users, session]);
 
   async function convertToRock(issue) {
+    const meetingDate = parseOccurrenceDate(occurrenceKey) || new Date();
+    setConvertingId(issue.id);
     try {
-      await createRock({
+      const rock = await createRock({
         eventId,
         occurrence_key: occurrenceKey,
         description: issue.description,
         owner: issue.owner,
+        horizon: "quarterly",
+        year: meetingDate.getFullYear(),
+        quarter: scorecardQuarterFromDate(meetingDate),
       }).unwrap();
-      await setStatus(issue, "solved");
-      toast.success("Created rock from issue");
+      await updateIssue({
+        eventId,
+        issueId: issue.id,
+        occurrence_key: occurrenceKey,
+        converted_rock_id: rock.id,
+      }).unwrap();
+      toast.success("Created gem from issue — mark issue solved when ready");
     } catch (err) {
-      toast.error(apiError(err, "Failed to create rock"));
+      toast.error(apiError(err, "Failed to create gem"));
+    } finally {
+      setConvertingId(null);
     }
   }
 
@@ -1426,7 +852,7 @@ function IssueSolverPanel({ eventId, occurrenceKey, issues, isHost, users, locat
         <div className="font-medium text-xs uppercase tracking-wider text-muted-foreground">Decipher framework</div>
         {DECIPHER_OPTIONS.map((d) => (
           <div key={d.value} className="flex gap-2">
-            <span className="font-semibold shrink-0 w-16">{d.label}:</span>
+            <span className="font-semibold shrink-0 w-20">{d.label}:</span>
             <span className="text-muted-foreground">{d.hint}</span>
           </div>
         ))}
@@ -1538,12 +964,48 @@ function IssueSolverPanel({ eventId, occurrenceKey, issues, isHost, users, locat
                             </>
                           ) : (
                             <>
-                              {issue.decipher_type === "task" && issue.status === "open" && (
-                                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => convertToTask(issue)}>Create task</Button>
-                              )}
-                              {issue.decipher_type === "rock" && issue.status === "open" && (
-                                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => convertToRock(issue)}>→ Rock</Button>
-                              )}
+                              {issue.converted_todo_id ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs"
+                                  onClick={() => onNavigateAgenda?.("todo-review")}
+                                >
+                                  <ExternalLink className="h-3 w-3 mr-1" />
+                                  View To-Do
+                                </Button>
+                              ) : issue.decipher_type === "task" && issue.status === "open" ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs"
+                                  disabled={convertingId === issue.id}
+                                  onClick={() => convertToTodo(issue)}
+                                >
+                                  Create To-Do
+                                </Button>
+                              ) : null}
+                              {issue.converted_rock_id ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs"
+                                  onClick={() => onNavigateAgenda?.("rock-review")}
+                                >
+                                  <ExternalLink className="h-3 w-3 mr-1" />
+                                  View Gem
+                                </Button>
+                              ) : issue.decipher_type === "rock" && issue.status === "open" ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs"
+                                  disabled={convertingId === issue.id}
+                                  onClick={() => convertToRock(issue)}
+                                >
+                                  → Gem
+                                </Button>
+                              ) : null}
                               {(isHost) && (
                                 <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => startEdit(issue)}>
                                   <Pencil className="h-3.5 w-3.5" />
@@ -1596,269 +1058,37 @@ function IssueSolverPanel({ eventId, occurrenceKey, issues, isHost, users, locat
         </div>
 
         <p className="mt-3 text-xs text-muted-foreground">
-          Anyone can add issues and work through IDS. Meeting date is set from this occurrence. Use Decipher to classify — convert Tasks and Rocks with the action buttons when ready to solve.
+          Anyone can add issues and work through IDS. Meeting date is set from this occurrence. Use Decipher to classify — convert To-Dos and Gems with the action buttons. Mark the issue Solved yourself when done.
         </p>
       </div>
-
-      <NewTaskDialog
-        open={openTaskFromIssue}
-        onOpenChange={(open) => {
-          setOpenTaskFromIssue(open);
-          if (!open) setIssueForTask(null);
-        }}
-        onCreated={handleTaskCreatedFromIssue}
-        projects={projects}
-        defaultLocationGhlId={locationId}
-        initialValues={taskFromIssueInitial}
-        dialogTitle="Create task from issue"
-        dialogDescription="Review and complete the task details below. The issue will be marked solved when the task is created."
-        submitLabel="Create task"
-      />
     </div>
   );
 }
 
-function TodoReviewPanel({ locationId, users, session }) {
-  const [stack, setStack] = useState([]);
-  const activeId = stack[stack.length - 1] ?? null;
-  const [openNew, setOpenNew] = useState(false);
-  const [q, setQ] = useState("");
-  const [fStatus, setFStatus] = useState(ALL);
-  const [fPriority, setFPriority] = useState(ALL);
-  const [fProject, setFProject] = useState(ALL);
-  const [fAssignees, setFAssignees] = useState([]);
-  const [fDueFrom, setFDueFrom] = useState("");
-  const [fDueTo, setFDueTo] = useState("");
-
-  const locationParams = locationId
-    ? { location_id: locationId, meeting_todos: "true" }
-    : {};
-  const { data: tasks = [], isLoading: loading, refetch: refetchTasks } = useGetTasksQuery(
-    locationParams,
-    { skip: !locationId || !session.ghlLocationId },
-  );
-  const { data: projects = [], refetch: refetchProjects } = useGetProjectsQuery(locationParams, { skip: !locationId });
-  const { statuses: customStatuses } = useCustomStatuses(locationId);
-
-  const load = () => {
-    refetchTasks();
-    refetchProjects();
-  };
-
-  const filtersActive = fStatus !== ALL || fPriority !== ALL || fProject !== ALL || fAssignees.length > 0 || fDueFrom || fDueTo || q;
-  function clearFilters() {
-    setQ("");
-    setFStatus(ALL);
-    setFPriority(ALL);
-    setFProject(ALL);
-    setFAssignees([]);
-    setFDueFrom("");
-    setFDueTo("");
-  }
-
-  const grouped = useMemo(() => {
-    const lower = q.toLowerCase();
-    const filtered = tasks.filter((t) => {
-      if (q && !(
-        (t.title || "").toLowerCase().includes(lower) ||
-        (t.description || "").toLowerCase().includes(lower) ||
-        (t.ghl_assignee_name || "").toLowerCase().includes(lower) ||
-        (t.ghl_contact_name || "").toLowerCase().includes(lower)
-      )) return false;
-      const eff = t.custom_status_key ? `custom:${t.custom_status_key}` : t.status;
-      if (fStatus !== ALL && eff !== fStatus) return false;
-      if (fPriority !== ALL && t.priority !== fPriority) return false;
-      if (fProject !== ALL) {
-        if (fProject === NONE && t.project_id) return false;
-        if (fProject !== NONE && t.project_id !== fProject) return false;
-      }
-      if (fAssignees.length > 0) {
-        const ids = t.ghl_assignee_ids ?? [];
-        if (!fAssignees.some((a) => ids.includes(a))) return false;
-      }
-      if (fDueFrom && (!t.due_date || new Date(t.due_date) < new Date(fDueFrom))) return false;
-      if (fDueTo && (!t.due_date || new Date(t.due_date) > new Date(fDueTo + "T23:59:59"))) return false;
-      return true;
-    });
-    const map = {};
-    for (const s of STATUSES) map[s] = [];
-    for (const cs of customStatuses) map[`custom:${cs.key}`] = [];
-    for (const t of filtered) {
-      const key = t.custom_status_key ? `custom:${t.custom_status_key}` : t.status;
-      (map[key] ||= []).push(t);
-    }
-    return map;
-  }, [tasks, q, fStatus, fPriority, fProject, fAssignees, fDueFrom, fDueTo, customStatuses]);
-
-  const allStatusKeys = useMemo(() => [...STATUSES, ...customStatuses.map((c) => `custom:${c.key}`)], [customStatuses]);
-  const customByKey = useMemo(() => Object.fromEntries(customStatuses.map((c) => [`custom:${c.key}`, c])), [customStatuses]);
-  const projectById = useMemo(() => Object.fromEntries(projects.map((p) => [p.id, p])), [projects]);
-  const userOpts = useMemo(() => users.map((u) => ({ id: u.ghl_id, name: u.name || u.email || u.ghl_id })), [users]);
-
-  return (
-    <div className="p-6">
-      <div className="mb-5 flex items-end justify-between gap-3 flex-wrap">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">To-Do Review</h2>
-          <p className="text-sm text-muted-foreground mt-1">Review and update tasks · 5 minutes</p>
-        </div>
-        <Button onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1.5" />New task</Button>
-      </div>
-      <div className="space-y-3 mb-5">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search tasks…" className="pl-9" />
-        </div>
-        <div className="flex flex-wrap gap-2 items-center">
-          <Select value={fStatus} onValueChange={setFStatus}>
-            <SelectTrigger className="h-9 w-[140px]"><SelectValue placeholder="Status" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>All statuses</SelectItem>
-              {STATUSES.map((s) => <SelectItem key={s} value={s}>{STATUS_LABEL[s]}</SelectItem>)}
-              {customStatuses.map((cs) => <SelectItem key={cs.key} value={`custom:${cs.key}`}>{cs.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={fPriority} onValueChange={setFPriority}>
-            <SelectTrigger className="h-9 w-[140px]"><SelectValue placeholder="Priority" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>All priorities</SelectItem>
-              {PRIORITIES.map((p) => <SelectItem key={p} value={p}>{PRIORITY_LABEL[p]}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={fProject} onValueChange={setFProject}>
-            <SelectTrigger className="h-9 w-[160px]"><SelectValue placeholder="Project" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>All projects</SelectItem>
-              <SelectItem value={NONE}>No project</SelectItem>
-              {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="h-9">
-                <UserIcon className="h-3.5 w-3.5 mr-1.5" />
-                {fAssignees.length === 0 ? "Assignees" : `${fAssignees.length} user${fAssignees.length === 1 ? "" : "s"}`}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="p-0 w-64">
-              <Command>
-                <CommandInput placeholder="Search users…" />
-                <CommandList>
-                  <CommandEmpty>No users.</CommandEmpty>
-                  <CommandGroup>
-                    {userOpts.map((u) => {
-                      const checked = fAssignees.includes(u.id);
-                      return (
-                        <CommandItem key={u.id} onSelect={() => setFAssignees(checked ? fAssignees.filter((x) => x !== u.id) : [...fAssignees, u.id])}>
-                          <Checkbox checked={checked} className="mr-2" />
-                          {u.name}
-                        </CommandItem>
-                      );
-                    })}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="h-9">
-                <Calendar className="h-3.5 w-3.5 mr-1.5" />
-                {fDueFrom || fDueTo ? "Due: set" : "Due date"}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="p-3 w-64 space-y-2">
-              <div>
-                <label className="text-xs text-muted-foreground">From</label>
-                <Input type="date" value={fDueFrom} onChange={(e) => setFDueFrom(e.target.value)} />
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground">To</label>
-                <Input type="date" value={fDueTo} onChange={(e) => setFDueTo(e.target.value)} />
-              </div>
-            </PopoverContent>
-          </Popover>
-          {filtersActive && (
-            <Button variant="ghost" size="sm" className="h-9" onClick={clearFilters}>
-              <X className="h-3.5 w-3.5 mr-1" />Clear
-            </Button>
-          )}
-        </div>
-      </div>
-      {loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : tasks.length === 0 ? (
-        <div className="border border-dashed rounded-lg p-12 text-center">
-          <p className="text-muted-foreground mb-4">No tasks yet.</p>
-          <Button onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1.5" />Create your first task</Button>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {allStatusKeys.map((s) => {
-            const list = grouped[s] ?? [];
-            if (list.length === 0) return null;
-            const cs = customByKey[s];
-            return (
-              <section key={s}>
-                <div className="flex items-center gap-2 mb-2">
-                  {cs ? (
-                    <span className="status-pill" style={{ background: `${cs.color}20`, color: cs.color }}>{cs.label}</span>
-                  ) : (
-                    <span className={`status-pill status-${s}`}>{STATUS_LABEL[s]}</span>
-                  )}
-                  <span className="text-xs text-muted-foreground">{list.length}</span>
-                </div>
-                <div className="border rounded-lg bg-card divide-y">
-                  {list.map((t) => (
-                    <button
-                      key={t.id}
-                      onClick={() => setStack([t.id])}
-                      className={`w-full text-left px-4 py-3 hover:bg-accent/40 transition-colors flex items-center justify-between gap-3 priority-border-${t.priority}`}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium truncate">{t.title}</div>
-                        {t.description ? <div className="text-sm text-muted-foreground truncate">{t.description}</div> : null}
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {t.project_id && projectById[t.project_id] && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[11px]">
-                              <Folder className="h-3 w-3" />{projectById[t.project_id].title}
-                            </span>
-                          )}
-                          {t.labels?.map((l) => (
-                            <span key={l} className="rounded-full bg-accent px-2 py-0.5 text-[11px]">{l}</span>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
-                        <span className="hidden sm:inline">{PRIORITY_LABEL[t.priority]}</span>
-                        {(t.ghl_assignee_names?.length ?? 0) > 0 && (
-                          <span className="inline-flex items-center gap-1"><UserIcon className="h-3 w-3" />{t.ghl_assignee_names.join(", ")}</span>
-                        )}
-                        {t.ghl_contact_name && (
-                          <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3" />{t.ghl_contact_name}</span>
-                        )}
-                        {t.due_date && (
-                          <span className="inline-flex items-center gap-1"><Calendar className="h-3 w-3" />{new Date(t.due_date).toLocaleDateString()}</span>
-                        )}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            );
-          })}
-        </div>
-      )}
-      <NewTaskDialog open={openNew} onOpenChange={setOpenNew} onCreated={load} projects={projects} defaultProjectId={fProject !== ALL && fProject !== NONE ? fProject : null} />
-      <TaskDetail taskId={activeId} meetingAccess onClose={() => setStack([])} onChange={load} onOpenTask={(id) => setStack((s) => [...s, id])} onBack={stack.length > 1 ? () => setStack((s) => s.slice(0, -1)) : undefined} projects={projects} />
-    </div>
-  );
+function participantIdentity(user) {
+  if (!user) return null;
+  return user.email || user.ghl_id || user.name || null;
 }
 
-function ConcludePanel({ eventId, occurrenceKey, ratings }) {
-  const [identityName, setIdentityName] = useState("");
-  const [identityKey, setIdentityKey] = useState("");
+function findRatingForParticipant(ratings, user) {
+  if (!user || !ratings?.length) return null;
+  const keys = [user.ghl_id, user.email, user.name].filter(Boolean).map(String);
+  const nameLower = user.name?.trim().toLowerCase();
+  const emailLower = user.email?.trim().toLowerCase();
+  return ratings.find((r) => {
+    if (keys.includes(String(r.rater_identity))) return true;
+    const rn = r.rater_name?.trim().toLowerCase();
+    if (nameLower && rn === nameLower) return true;
+    if (emailLower && String(r.rater_identity).toLowerCase() === emailLower) return true;
+    return false;
+  }) || null;
+}
+
+function ConcludePanel({ eventId, occurrenceKey, ratings, isHost = false, attendeeIds = [], users = [] }) {
+  const [selfName, setSelfName] = useState("");
+  const [selfKey, setSelfKey] = useState("");
   const [nameDraft, setNameDraft] = useState("");
+  const [selectedKey, setSelectedKey] = useState("");
   const [pendingRating, setPendingRating] = useState(null);
   const [reasonDraft, setReasonDraft] = useState("");
   const [upsertRating] = useUpsertLevel10RatingMutation();
@@ -1866,12 +1096,51 @@ function ConcludePanel({ eventId, occurrenceKey, ratings }) {
   useEffect(() => {
     const id = getIdentity();
     if (id?.name) {
-      setIdentityName(id.name);
-      setIdentityKey(id.email || id.name);
+      const key = id.email || id.name;
+      setSelfName(id.name);
+      setSelfKey(key);
+      setSelectedKey((prev) => prev || key);
     }
   }, []);
 
-  const myRating = useMemo(() => ratings.find((r) => r.rater_identity === identityKey), [ratings, identityKey]);
+  const participants = useMemo(() => {
+    const list = [];
+    const seen = new Set();
+
+    if (selfKey && selfName) {
+      list.push({ key: selfKey, name: selfName, isSelf: true });
+      seen.add(String(selfKey).toLowerCase());
+      seen.add(String(selfName).toLowerCase());
+    }
+
+    if (isHost) {
+      for (const id of attendeeIds) {
+        const user = users.find((u) => String(u.ghl_id) === String(id));
+        const name = user?.name || user?.email || String(id);
+        const key = participantIdentity(user) || String(id);
+        const dedupe = [key, name, user?.email, user?.ghl_id].filter(Boolean).map((v) => String(v).toLowerCase());
+        if (dedupe.some((d) => seen.has(d))) continue;
+        seen.add(String(key).toLowerCase());
+        seen.add(String(name).toLowerCase());
+        list.push({ key, name, isSelf: false, user });
+      }
+    }
+
+    return list;
+  }, [selfKey, selfName, isHost, attendeeIds, users]);
+
+  const selected = useMemo(() => {
+    if (!selectedKey) return participants[0] || null;
+    return participants.find((p) => p.key === selectedKey) || participants[0] || null;
+  }, [participants, selectedKey]);
+
+  const selectedRating = useMemo(() => {
+    if (!selected) return null;
+    if (selected.user) return findRatingForParticipant(ratings, selected.user);
+    return ratings.find((r) => r.rater_identity === selected.key)
+      || ratings.find((r) => r.rater_name?.trim().toLowerCase() === selected.name?.trim().toLowerCase())
+      || null;
+  }, [ratings, selected]);
 
   const avg = useMemo(() => {
     if (ratings.length === 0) return null;
@@ -1889,8 +1158,13 @@ function ConcludePanel({ eventId, occurrenceKey, ratings }) {
     return `${avg}/10 — Needs work`;
   })();
 
+  const sortedRatings = useMemo(
+    () => [...ratings].sort((a, b) => a.created_at.localeCompare(b.created_at)),
+    [ratings],
+  );
+
   async function submitRating(value, reason) {
-    if (!identityName.trim()) {
+    if (!selected) {
       toast.error("Please enter your name first");
       return;
     }
@@ -1899,11 +1173,13 @@ function ConcludePanel({ eventId, occurrenceKey, ratings }) {
       toast.error("Please tell us why you gave this rating");
       return;
     }
-    const name = identityName.trim();
-    const key = identityKey || name;
-    const existing = getIdentity();
-    if (!existing || existing.name !== name) {
-      setIdentity({ name, email: existing?.email });
+    const name = selected.name.trim();
+    const key = selected.key || name;
+    if (selected.isSelf) {
+      const existing = getIdentity();
+      if (!existing || existing.name !== name) {
+        setIdentity({ name, email: existing?.email });
+      }
     }
     try {
       await upsertRating({
@@ -1916,6 +1192,7 @@ function ConcludePanel({ eventId, occurrenceKey, ratings }) {
       }).unwrap();
       setPendingRating(null);
       setReasonDraft("");
+      toast.success(selected.isSelf ? "Rating submitted" : `Rating saved for ${name}`);
     } catch (err) {
       toast.error(apiError(err, "Failed to submit rating"));
     }
@@ -1923,7 +1200,7 @@ function ConcludePanel({ eventId, occurrenceKey, ratings }) {
 
   function openRatingDialog(value) {
     setPendingRating(value);
-    setReasonDraft(myRating?.rating === value ? (myRating.reason || "") : "");
+    setReasonDraft(selectedRating?.rating === value ? (selectedRating.reason || "") : (selectedRating?.reason || ""));
   }
 
   function closeRatingDialog() {
@@ -1935,12 +1212,13 @@ function ConcludePanel({ eventId, occurrenceKey, ratings }) {
     const n = nameDraft.trim();
     if (!n) return;
     setIdentity({ name: n });
-    setIdentityName(n);
-    setIdentityKey(n);
+    setSelfName(n);
+    setSelfKey(n);
+    setSelectedKey(n);
     setNameDraft("");
   }
 
-  const sortedRatings = useMemo(() => [...ratings].sort((a, b) => a.created_at.localeCompare(b.created_at)), [ratings]);
+  const ratingForOther = selected && !selected.isSelf;
 
   return (
     <div className="p-6">
@@ -1967,7 +1245,7 @@ function ConcludePanel({ eventId, occurrenceKey, ratings }) {
             <span>Excellent</span>
           </div>
         </div>
-        {!identityName ? (
+        {!selfName ? (
           <div className="mt-6 max-w-md mx-auto rounded-md border bg-card p-4">
             <label className="text-xs font-medium text-muted-foreground">Your name</label>
             <div className="flex gap-2 mt-1.5">
@@ -1977,21 +1255,42 @@ function ConcludePanel({ eventId, occurrenceKey, ratings }) {
           </div>
         ) : (
           <div className="mt-6 max-w-md mx-auto">
-            <div className="text-xs text-muted-foreground text-center mb-2">
-              Rating as <span className="font-medium text-foreground">{identityName}</span>
-              {" · "}
-              <button type="button" className="underline hover:text-foreground" onClick={() => { setIdentityName(""); setIdentityKey(""); }}>change</button>
-            </div>
+            {isHost && participants.length > 1 ? (
+              <div className="mb-3 space-y-1.5">
+                <div className="text-xs text-muted-foreground text-center">Rating as</div>
+                <Select value={selected?.key || ""} onValueChange={setSelectedKey}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select participant" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {participants.map((p) => (
+                      <SelectItem key={p.key} value={p.key}>
+                        {p.name}{p.isSelf ? " (you)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground text-center mb-2">
+                Rating as <span className="font-medium text-foreground">{selfName}</span>
+                {" · "}
+                <button type="button" className="underline hover:text-foreground" onClick={() => { setSelfName(""); setSelfKey(""); setSelectedKey(""); }}>change</button>
+              </div>
+            )}
             <div className="flex items-center justify-center flex-wrap gap-1.5">
               {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => {
-                const selected = myRating?.rating === n;
+                const selectedScore = selectedRating?.rating === n;
                 return (
-                  <button key={n} type="button" onClick={() => openRatingDialog(n)} className={`h-9 w-9 rounded-full border text-sm font-medium transition ${selected ? "bg-primary text-primary-foreground border-primary" : "bg-card hover:bg-accent border-border"}`}>
+                  <button key={n} type="button" onClick={() => openRatingDialog(n)} className={`h-9 w-9 rounded-full border text-sm font-medium transition ${selectedScore ? "bg-primary text-primary-foreground border-primary" : "bg-card hover:bg-accent border-border"}`}>
                     {n}
                   </button>
                 );
               })}
             </div>
+            {selectedRating?.reason ? (
+              <p className="mt-3 text-sm text-muted-foreground text-center leading-relaxed">"{selectedRating.reason}"</p>
+            ) : null}
           </div>
         )}
       </div>
@@ -2004,9 +1303,9 @@ function ConcludePanel({ eventId, occurrenceKey, ratings }) {
               <div className="text-sm text-muted-foreground text-center mb-3">{r.rater_name}</div>
               <div className="flex items-center justify-center flex-wrap gap-1">
                 {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => {
-                  const selected = r.rating === n;
+                  const selectedScore = r.rating === n;
                   return (
-                    <div key={n} className={`h-7 w-7 rounded-full border flex items-center justify-center text-xs ${selected ? "bg-primary text-primary-foreground border-primary" : "border-border/60 text-muted-foreground"}`}>
+                    <div key={n} className={`h-7 w-7 rounded-full border flex items-center justify-center text-xs ${selectedScore ? "bg-primary text-primary-foreground border-primary" : "border-border/60 text-muted-foreground"}`}>
                       {n}
                     </div>
                   );
@@ -2023,21 +1322,29 @@ function ConcludePanel({ eventId, occurrenceKey, ratings }) {
       <Dialog open={pendingRating !== null} onOpenChange={(open) => { if (!open) closeRatingDialog(); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Why did you rate this meeting {pendingRating}/10?</DialogTitle>
+            <DialogTitle>
+              {ratingForOther
+                ? `Rate for ${selected?.name}: ${pendingRating}/10`
+                : `Why did you rate this meeting ${pendingRating}/10?`}
+            </DialogTitle>
             <DialogDescription>
-              Share what went well or what could be improved. This helps the team run better meetings.
+              {ratingForOther
+                ? `Add or update the rating and review on behalf of ${selected?.name}.`
+                : "Share what went well or what could be improved. This helps the team run better meetings."}
             </DialogDescription>
           </DialogHeader>
           <Textarea
             value={reasonDraft}
             onChange={(e) => setReasonDraft(e.target.value)}
-            placeholder="Tell us why you gave this rating…"
+            placeholder={ratingForOther ? `Review for ${selected?.name}…` : "Tell us why you gave this rating…"}
             rows={4}
             autoFocus
           />
           <DialogFooter>
             <Button variant="outline" onClick={closeRatingDialog}>Cancel</Button>
-            <Button onClick={() => submitRating(pendingRating, reasonDraft)}>Submit rating</Button>
+            <Button onClick={() => submitRating(pendingRating, reasonDraft)}>
+              {ratingForOther ? "Save rating" : "Submit rating"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

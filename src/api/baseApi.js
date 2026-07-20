@@ -56,6 +56,7 @@ export const tagTypes = [
   "Level10Event",
   "Level10Meeting",
   "TaskHistory",
+  "OfficeTodo",
 ];
 
 export const baseApi = createApi({

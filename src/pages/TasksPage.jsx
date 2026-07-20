@@ -15,7 +15,6 @@ import {
   CalendarDays,
   BarChart3,
   Settings,
-  Video,
   ChevronDown,
   ChevronRight,
   ListTree,
@@ -54,6 +53,25 @@ import { STATUSES, STATUS_LABEL, PRIORITIES, PRIORITY_LABEL } from "@/theme/stat
 
 const ALL = "__all__";
 const NONE = "__none__";
+const LIST_COLLAPSE_KEY = "tasks-list-collapsed-statuses";
+
+function loadCollapsedSet(storageKey) {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (raw != null) return new Set(JSON.parse(raw));
+  } catch {
+    /* ignore */
+  }
+  return new Set();
+}
+
+function persistCollapsedSet(storageKey, set) {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify([...set]));
+  } catch {
+    /* ignore */
+  }
+}
 
 export function TasksPage() {
   const session = useSession();
@@ -104,6 +122,17 @@ export function TasksPage() {
   const [fDueFrom, setFDueFrom] = useState("");
   const [fDueTo, setFDueTo] = useState("");
   const [expandedParents, setExpandedParents] = useState(() => new Set());
+  const [collapsedListStatuses, setCollapsedListStatuses] = useState(() => loadCollapsedSet(LIST_COLLAPSE_KEY));
+
+  function toggleListStatusCollapsed(statusKey) {
+    setCollapsedListStatuses((prev) => {
+      const next = new Set(prev);
+      if (next.has(statusKey)) next.delete(statusKey);
+      else next.add(statusKey);
+      persistCollapsedSet(LIST_COLLAPSE_KEY, next);
+      return next;
+    });
+  }
 
   const loading = !session.loaded || (!skip && tasksLoading);
 
@@ -307,11 +336,6 @@ export function TasksPage() {
                   <BarChart3 className="h-4 w-4 mr-1.5" />Dashboard
                 </Button>
               </Link>
-              <Link to="/level10">
-                <Button variant="outline" size="sm" className="h-9">
-                  <Video className="h-4 w-4 mr-1.5" />Perfect 10 Meeting
-                </Button>
-              </Link>
               <div className="inline-flex rounded-md border bg-card p-0.5" role="group" aria-label="Task view">
                 <button
                   type="button"
@@ -472,11 +496,22 @@ export function TasksPage() {
             <div className="space-y-8">
               {allStatusKeys.map((s) => {
                 const list = grouped[s] ?? [];
-                if (list.length === 0) return null;
                 const cs = customByKey[s];
+                const isCollapsed = collapsedListStatuses.has(s);
                 return (
                   <section key={s}>
-                    <div className="flex items-center gap-2 mb-3">
+                    <button
+                      type="button"
+                      onClick={() => toggleListStatusCollapsed(s)}
+                      className="flex w-full items-center gap-2 mb-3 rounded-md px-1 py-1 -ml-1 text-left hover:bg-muted/50 transition-colors"
+                      aria-expanded={!isCollapsed}
+                      title={isCollapsed ? "Expand section" : "Collapse section"}
+                    >
+                      {isCollapsed ? (
+                        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      )}
                       {cs ? (
                         <span
                           className="status-pill"
@@ -488,9 +523,12 @@ export function TasksPage() {
                         <span className={`status-pill status-${s}`}>{STATUS_LABEL[s]}</span>
                       )}
                       <span className="text-xs text-muted-foreground">{list.length}</span>
-                    </div>
+                    </button>
+                    {!isCollapsed && (
                     <div className="border rounded-lg bg-card divide-y">
-                      {list.map((t) => {
+                      {list.length === 0 ? (
+                        <p className="px-4 py-6 text-sm text-muted-foreground text-center">No tasks</p>
+                      ) : list.map((t) => {
                         const children = (subtasksByParent.get(t.id) || []).filter(matchesFilters);
                         const subtaskCount = t.subtask_count ?? children.length;
                         const hasChildren = subtaskCount > 0;
@@ -548,6 +586,7 @@ export function TasksPage() {
                         );
                       })}
                     </div>
+                    )}
                   </section>
                 );
               })}
